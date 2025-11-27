@@ -1,11 +1,11 @@
-# 🏛️ Constitution GPT  
+# 🏛️ Constitution GPT
 ### An Open-Source Constitutional Intelligence System Powered by RAG + LLMs
 
-Constitution GPT is not just another RAG pipeline.  
+Constitution GPT is not just another RAG pipeline.
 It is an **open-source intelligence system designed specifically for constitutional, legal, policy, and governance documents**, enabling precise retrieval, interpretation, and question-answering **grounded in authoritative texts**.
 
 This project aims to help students, lawyers, policymakers, researchers, and developers build systems that require:
-- Accurate referencing  
+- Accurate referencing
 - Context-aware summarization
 - Traceable legal reasoning
 - Question answering based on verified constitutional sources
@@ -51,7 +51,7 @@ The system converts them into **structured, retrievable knowledge**.
 
 ### ✂️ **2. Smart Chunking (Not Just Character Splitting)**
 Supports:
-- Semantic chunking
+- Chunking Methods
 - Rule-based legal breakpoints
 - Section-article-auto-detection
 - Hierarchical chunk structure
@@ -76,7 +76,7 @@ Output is grounded, citation-backed, and easy to understand.
 
 ### ⚡ **5. FastAPI Backend for Developers**
 Provides clean API endpoints so you can:
-- Build apps  
+- Build apps
 - Integrate into Go or Node backends
 - Use it in mobile apps
 - Connect it to your front-end (React/Next.js)
@@ -128,7 +128,7 @@ PDF → Extract Text → Smart Chunking → Embeddings → Vector DB
 ### Clone & Setup
 
 ```bash
-git clone https://github.com/<your-username>/constitution-gpt.git
+git clone https://github.com/subigya-js/constitution-gpt.git
 cd constitution-gpt/backend
 ```
 
@@ -160,30 +160,6 @@ OPENAI_API_KEY=your_api_key
 ```bash
 uvicorn main:app --reload
 ```
-
-API Documentation:
-
-- Swagger: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
----
-
-## 📡 API Endpoints
-
-### **POST /ingest**
-Upload PDFs → Extract → Chunk → Store into Vector DB
-
-### **POST /ask**
-Ask questions like:
-
-```json
-{
-  "query": "Explain Article 15 in simple language."
-}
-```
-
-### **GET /health**
-Simple health check.
 
 ---
 
