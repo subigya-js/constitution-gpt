@@ -83,28 +83,6 @@ Provides clean API endpoints so you can:
 
 ---
 
-## 📁 Repository Structure
-
-```
-constitution-gpt/
-│── backend/
-│   ├── main.py              # FastAPI app
-│   ├── ingest.py            # PDF loading
-│   ├── chunking.py          # Semantic + rule-based chunkers
-│   ├── embeddings.py        # Embedding generation
-│   ├── vector.py            # Vector database interface
-│   ├── retrieval.py         # Retrieval logic
-│   ├── qa_pipeline.py       # Final answer generation
-│   └── data/                # PDF files
-│
-│── frontend/                # (Optional) Web UI
-│── README.md
-│── requirements.txt
-│── .env.example
-```
-
----
-
 ## 🧩 How It Works (Conceptual Flow)
 
 ```
