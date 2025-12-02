@@ -1,10 +1,10 @@
 import os
 import re
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_experimental.text_splitter import SemanticChunker
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
+from chromadb import CloudClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -32,22 +32,21 @@ def load_documents(doc_path=DOCUMENT_PATH):
 
 
 def chunk_documents(documents):
-    """Hybrid Chunking:
-    1. Rule-based split by PART and ARTICLE (legal structure)
-    2. Semantic Chunking inside each article
     """
+    Ultra-fast hybrid chunking for Constitution of Nepal:
+    - Split by PART
+    - Split by ARTICLE
+    - Split by SUBARTICLE
+    - Split by CLAUSE
+    - Fallback to fixed-size splitter
+    """
+
     print("Chunking Started...")
 
     # Extract the raw text from the documents
     full_text = "\n".join([doc.page_content for doc in documents])
 
-    # --- Step 1: Split by PART headings ---
-    part_pattern = r"(?=Part[-\s]*\d+)"
-    parts = re.split(part_pattern, full_text, flags=re.IGNORECASE)
-
     final_chunks = []
-
-    embeddings = OpenAIEmbeddings()
 
     # Recursive fallback chunker
     fallback_splitter = RecursiveCharacterTextSplitter(
@@ -56,70 +55,99 @@ def chunk_documents(documents):
         separators=["\n\n", "\n", ".", " ", ""]
     )
 
-    # Semantic chunker
-    semantic_splitter = SemanticChunker(
-        embeddings=embeddings,
-        breakpoint_threshold_type="percentile",
-        breakpoint_threshold=92
-    )
+    # --------------------------------
+    # Level 1 — PART
+    # --------------------------------
+
+    parts = re.split(r"(?=Part[-\s]*\d+)", full_text, flags=re.IGNORECASE)
 
     # --- Process each PART ---
     for part in parts:
         if not part.strip():
             continue
 
-        # Step 2: Split by ARTICLE inside each PART
-        article_pattern = r"(?=\n?\s*\d+\.)"
-        articles = re.split(article_pattern, part)
+        # Step 2: ARTICLE: "1." , "2."
+        articles = re.split(r"(?=\n?\s*\d+\.)", part)
 
         for article in articles:
             if not article.strip():
                 continue
 
-            # For Sub-articles
-            sub_article_pattern = r"(?=\(\d+\))"
-            sub_articles = re.split(sub_article_pattern, article)
+            # Step 3: SUB-ARTICLE "(1)", "(2)"
+            subs = re.split(r"(?=\(\d+\))", article)
 
-            for sub in sub_articles:
+            for sub in subs:
                 if not sub.strip():
                     continue
 
-                # For Clauses
-                clause_pattern = r"(?=\([a-z]\))"
-                clauses = re.split(clause_pattern, sub)
+                # Step 4: CLAUSE "(a)", "(b)"
+                clauses = re.split(r"(?=\([a-z]\))", sub)
 
                 for clause in clauses:
                     if not clause.strip():
                         continue
 
-                # Apply Semantic Chunking on Final Section
-                try:
-                    s_chunks = semantic_splitter.split_text(clause)
+                 # Fallback splitting (always keeps chunks within safe size)
+                    small_chunks = fallback_splitter.split_text(clause)
+                    final_chunks.extend(small_chunks)
 
-                    for c in s_chunks:
-                        if len(c) > 2000:
-                            final_chunks.extend(
-                                fallback_splitter.split_text(c))
-
-                        else:
-                            final_chunks.append(c)
-
-                except Exception as e:
-                    final_chunks.extend(fallback_splitter.split_text(clause))
-        
     print("Chunking Completed. Total Chunks:", len(final_chunks))
     return final_chunks
+
+# Create Embeddings and Vector DB
+
+
+def create_vector_store(chunks):
+    print("Using Chroma Cloud...")
+
+    embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+
+    # Connect to Chroma Cloud
+    client = CloudClient(
+        api_key=os.getenv("CHROMA_API_KEY")
+    )
+
+    # Create collection
+    collection = client.get_or_create_collection(
+        name="constitution_gpt",
+        metadata={"hnsw:space": "cosine"}
+    )
+
+    BATCH_SIZE = 1000  # Chroma cloud limit
+
+    print(f"Total chunks: {len(chunks)}")
+    print(f"Uploading in batches of {BATCH_SIZE}...")
+
+    for i in range(0, len(chunks), BATCH_SIZE):
+        batch = chunks[i:i + BATCH_SIZE]
+
+        print(f"Uploading batch {i//BATCH_SIZE + 1}...")
+
+        ids = [f"chunk_{i+j}" for j in range(len(batch))]
+        embeddings = embedding_model.embed_documents(batch)
+
+        collection.add(
+            ids=ids,
+            documents=batch,
+            embeddings=embeddings
+        )
+
+    print("All batches uploaded to Chroma Cloud successfully!")
+    return collection
 
 
 def main():
     print("Main Function:")
     documents = load_documents()
-    
+
     print("Chunks:\n")
     chunks = chunk_documents(documents)
 
     for chunk in chunks:
         print(chunk)
+
+    collection = create_vector_store(chunks)
+    print(collection)
 
     # TODO: Add embedding and vector store logic here in the future.
 
