@@ -4,8 +4,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_chroma import Chroma
-from chromadb import CloudClient
 from dotenv import load_dotenv
+from langchain_core.documents import Document
 
 load_dotenv()
 
@@ -97,43 +97,30 @@ def chunk_documents(documents):
 # Create Embeddings and Vector DB
 
 
-def create_vector_store(chunks):
-    print("Using Chroma Cloud...")
+def create_vector_store(chunks, persist_directory="db/chroma_db"):
+    """Create and persist ChromaDB vector store"""
+    print("Creating embeddings and storing in local ChromaDB...")
+
+    # Ensure directory exists
+    os.makedirs(persist_directory, exist_ok=True)
+
+    # Convert plain strings → Document objects
+    documents = [Document(page_content=chunk) for chunk in chunks]
 
     embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
 
-    # Connect to Chroma Cloud
-    client = CloudClient(
-        api_key=os.getenv("CHROMA_API_KEY")
+    print("--- Creating vector store ---")
+    vectorstore = Chroma.from_documents(
+        documents=documents,
+        embedding=embedding_model,
+        persist_directory=persist_directory,
+        collection_metadata={"hnsw:space": "cosine"}
     )
 
-    # Create collection
-    collection = client.get_or_create_collection(
-        name="constitution_gpt",
-        metadata={"hnsw:space": "cosine"}
-    )
+    print("--- Finished creating vector store ---")
+    print(f"Vector store created and saved to {persist_directory}")
 
-    BATCH_SIZE = 1000  # Chroma cloud limit
-
-    print(f"Total chunks: {len(chunks)}")
-    print(f"Uploading in batches of {BATCH_SIZE}...")
-
-    for i in range(0, len(chunks), BATCH_SIZE):
-        batch = chunks[i:i + BATCH_SIZE]
-
-        print(f"Uploading batch {i//BATCH_SIZE + 1}...")
-
-        ids = [f"chunk_{i+j}" for j in range(len(batch))]
-        embeddings = embedding_model.embed_documents(batch)
-
-        collection.add(
-            ids=ids,
-            documents=batch,
-            embeddings=embeddings
-        )
-
-    print("All batches uploaded to Chroma Cloud successfully!")
-    return collection
+    return vectorstore
 
 
 def main():
