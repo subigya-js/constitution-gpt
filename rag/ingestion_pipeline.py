@@ -55,9 +55,7 @@ def chunk_documents(documents):
         separators=["\n\n", "\n", ".", " ", ""]
     )
 
-    # --------------------------------
     # Level 1 — PART
-    # --------------------------------
 
     parts = re.split(r"(?=Part[-\s]*\d+)", full_text, flags=re.IGNORECASE)
 
