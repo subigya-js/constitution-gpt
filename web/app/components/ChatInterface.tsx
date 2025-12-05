@@ -55,17 +55,42 @@ export default function ChatInterface() {
         setInput('');
         setIsLoading(true);
 
-        // Simulate AI response (replace with actual API call)
-        setTimeout(() => {
+        try {
+            // Call the FastAPI backend
+            const response = await fetch('http://localhost:8000/api/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ question: messageContent }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+
             const aiMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'assistant',
-                content: `This is a simulated response to: "${messageContent}"\n\nIn a production environment, this would connect to your RAG backend at the retrieval_pipeline.py endpoint to fetch constitutional information with proper citations and hierarchical structure.\n\n📘 Part 7 – Federal Executive\nArticle 76 – Constitution of Council of Ministers\n\n🔹 Sub-article (1)\nAs per Part 7, Article 76, Sub-article (1):\n• The President shall appoint the leader of a parliamentary party that commands a majority in the House of Representatives as the Prime Minister...`,
+                content: data.answer,
                 timestamp: new Date(),
             };
+
             setMessages(prev => [...prev, aiMessage]);
+        } catch (error) {
+            console.error('Error fetching response:', error);
+            const errorMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'assistant',
+                content: 'Sorry, I encountered an error connecting to the Constitution GPT API. Please make sure the API server is running at http://localhost:8000.\n\nTo start the API server, run:\n```\npython -m uvicorn api.main:app --reload --port 8000\n```',
+                timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, errorMessage]);
+        } finally {
             setIsLoading(false);
-        }, 1500);
+        }
     };
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -77,24 +102,6 @@ export default function ChatInterface() {
 
     return (
         <div className="flex flex-col h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-indigo-950 dark:to-purple-950">
-            {/* Header */}
-            <header className="glass border-b border-white/20 dark:border-white/10 px-6 py-4 backdrop-blur-xl">
-                <div className="max-w-5xl mx-auto flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
-                            <span className="text-white text-xl font-bold">🏛️</span>
-                        </div>
-                        <div>
-                            <h1 className="text-xl font-bold gradient-text">Constitution GPT</h1>
-                            <p className="text-xs text-gray-600 dark:text-gray-400">AI-Powered Constitutional Intelligence</p>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse-slow"></div>
-                        <span className="text-xs text-gray-600 dark:text-gray-400">Online</span>
-                    </div>
-                </div>
-            </header>
 
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto px-4 py-6">
