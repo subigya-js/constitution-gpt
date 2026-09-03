@@ -2,238 +2,222 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+type MessageStatus = 'complete' | 'waiting' | 'streaming' | 'error';
+
 interface Message {
-    id: string;
-    role: 'user' | 'assistant';
-    content: string;
-    timestamp: Date;
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  status: MessageStatus;
 }
 
-const SUGGESTED_QUESTIONS = [
-    "How is the Prime Minister elected in Nepal?",
-    "What are the fundamental rights of citizens?",
-    "What are the duties of citizens?",
-    "How is the President elected?",
-    "What is the structure of the Federal Parliament?",
-    "What are the provisions for freedom of speech?"
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+
+const STARTERS = [
+  { eyebrow: 'Federal executive', question: 'How is the Prime Minister elected in Nepal?' },
+  { eyebrow: 'Fundamental rights', question: 'What rights does the Constitution guarantee?' },
+  { eyebrow: 'Civic responsibility', question: 'What are the constitutional duties of citizens?' },
+  { eyebrow: 'Federal parliament', question: 'How is Nepal’s Federal Parliament structured?' },
 ];
 
+const wait = (milliseconds: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(resolve, milliseconds);
+    signal.addEventListener('abort', () => {
+      window.clearTimeout(timer);
+      reject(new DOMException('Stopped', 'AbortError'));
+    }, { once: true });
+  });
+
+function AnswerContent({ content }: { content: string }) {
+  return (
+    <div className="answer-content">
+      {content.split('\n').map((line, index) => {
+        const trimmed = line.trim();
+        if (!trimmed) return <div className="answer-spacer" key={index} />;
+        if (/^(#{1,3}\s|📘|Article\s+\d+)/i.test(trimmed)) {
+          return <h3 key={index}>{trimmed.replace(/^#{1,3}\s*/, '')}</h3>;
+        }
+        if (/^([•*-]|\d+\.)\s/.test(trimmed)) {
+          return <p className="answer-list" key={index}>{trimmed}</p>;
+        }
+        return <p key={index}>{line}</p>;
+      })}
+    </div>
+  );
+}
+
 export default function ChatInterface() {
-    const [messages, setMessages] = useState<Message[]>([]);
-    const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const transcriptRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
+  useEffect(() => {
+    const transcript = transcriptRef.current;
+    transcript?.scrollTo({ top: transcript.scrollHeight, behavior: 'smooth' });
+  }, [messages]);
 
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = '0px';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 168)}px`;
+  }, [input]);
 
-    useEffect(() => {
-        if (textareaRef.current) {
-            textareaRef.current.style.height = 'auto';
-            textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
-        }
-    }, [input]);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
-    const handleSend = async (question?: string) => {
-        const messageContent = question || input.trim();
-        if (!messageContent || isLoading) return;
+  const updateAssistant = (id: string, patch: Partial<Message>) => {
+    setMessages((current) => current.map((message) =>
+      message.id === id ? { ...message, ...patch } : message,
+    ));
+  };
 
-        const userMessage: Message = {
-            id: Date.now().toString(),
-            role: 'user',
-            content: messageContent,
-            timestamp: new Date(),
-        };
+  const revealResponse = async (id: string, answer: string, signal: AbortSignal) => {
+    const chunks = answer.match(/\S+\s*/g) ?? [answer];
+    let visible = '';
+    updateAssistant(id, { status: 'streaming' });
 
-        setMessages(prev => [...prev, userMessage]);
-        setInput('');
-        setIsLoading(true);
+    for (let index = 0; index < chunks.length; index += 3) {
+      visible += chunks.slice(index, index + 3).join('');
+      updateAssistant(id, { content: visible });
+      await wait(index < 12 ? 36 : 22, signal);
+    }
+    updateAssistant(id, { content: answer, status: 'complete' });
+  };
 
-        try {
-            // Call the FastAPI backend
-            const response = await fetch('http://localhost:8000/api/chat', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ question: messageContent }),
-            });
+  const handleSend = async (suggestedQuestion?: string) => {
+    const question = (suggestedQuestion ?? input).trim();
+    if (!question || isGenerating) return;
 
-            if (!response.ok) {
-                throw new Error(`API error: ${response.status}`);
-            }
+    const responseId = crypto.randomUUID();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setMessages((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: 'user', content: question, status: 'complete' },
+      { id: responseId, role: 'assistant', content: '', status: 'waiting' },
+    ]);
+    setInput('');
+    setIsGenerating(true);
 
-            const data = await response.json();
+    try {
+      const response = await fetch(`${API_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
 
-            const aiMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: data.answer,
-                timestamp: new Date(),
-            };
+      const data: { answer?: string } = await response.json();
+      if (!data.answer?.trim()) throw new Error('The API returned an empty answer');
+      await revealResponse(responseId, data.answer, controller.signal);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setMessages((current) => current.flatMap((message) => {
+          if (message.id !== responseId) return [message];
+          return message.content ? [{ ...message, status: 'complete' }] : [];
+        }));
+      } else {
+        updateAssistant(responseId, {
+          status: 'error',
+          content: 'I couldn’t reach the Constitution GPT service. Make sure the API is running, then try again.',
+        });
+      }
+    } finally {
+      setIsGenerating(false);
+      abortRef.current = null;
+    }
+  };
 
-            setMessages(prev => [...prev, aiMessage]);
-        } catch (error) {
-            console.error('Error fetching response:', error);
-            const errorMessage: Message = {
-                id: (Date.now() + 1).toString(),
-                role: 'assistant',
-                content: 'Sorry, I encountered an error connecting to the Constitution GPT API. Please make sure the API server is running at http://localhost:8000.\n\nTo start the API server, run:\n```\npython -m uvicorn api.main:app --reload --port 8000\n```',
-                timestamp: new Date(),
-            };
-            setMessages(prev => [...prev, errorMessage]);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+  const startNewChat = () => {
+    abortRef.current?.abort();
+    setMessages([]);
+    setInput('');
+    window.setTimeout(() => textareaRef.current?.focus(), 0);
+  };
 
-    const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
-    };
+  const copyAnswer = async (message: Message) => {
+    await navigator.clipboard.writeText(message.content);
+    setCopiedId(message.id);
+    window.setTimeout(() => setCopiedId(null), 1600);
+  };
 
-    return (
-        <div className="flex flex-col h-screen bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 dark:from-gray-900 dark:via-indigo-950 dark:to-purple-950">
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault();
+      void handleSend();
+    }
+  };
 
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto px-4 py-6">
-                <div className="max-w-4xl mx-auto space-y-6">
-                    {messages.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center h-full space-y-8 animate-fade-in">
-                            <div className="text-center space-y-4">
-                                <div className="w-20 h-20 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-2xl">
-                                    <span className="text-4xl">🏛️</span>
-                                </div>
-                                <h2 className="text-3xl font-bold gradient-text">Welcome to Constitution GPT</h2>
-                                <p className="text-gray-600 dark:text-gray-400 max-w-md">
-                                    Ask any question about the Constitution of Nepal. Get accurate, citation-backed answers with proper hierarchical structure.
-                                </p>
-                            </div>
+  return (
+    <div className="chat-shell">
+      <main className="chat-main">
+        <header className="topbar">
+          <span className="model-name">Constitution GPT</span>
+          {messages.length > 0 && (
+            <button className="header-new-chat cursor-pointer" aria-label="Start a new chat" onClick={startNewChat}>New chat</button>
+          )}
+        </header>
 
-                            {/* Suggested Questions */}
-                            <div className="w-full max-w-2xl space-y-3">
-                                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 text-center">Try asking:</p>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                    {SUGGESTED_QUESTIONS.map((question, index) => (
-                                        <button
-                                            key={index}
-                                            onClick={() => handleSend(question)}
-                                            className="group p-4 text-left rounded-xl bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 hover:border-indigo-500/50 dark:hover:border-indigo-400/50 transition-all duration-300 hover:shadow-lg hover:scale-[1.02] animate-slide-up"
-                                            style={{ animationDelay: `${index * 0.1}s` }}
-                                        >
-                                            <div className="flex items-start gap-3">
-                                                <span className="text-indigo-500 dark:text-indigo-400 mt-0.5 group-hover:scale-110 transition-transform">💡</span>
-                                                <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
-                                                    {question}
-                                                </span>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
+        <div className="transcript" ref={transcriptRef}>
+          {messages.length === 0 ? (
+            <section className="empty-state">
+              <h2>What would you like to understand?</h2>
+              <p>Explore Nepal’s Constitution with clear, source-grounded answers.</p>
+              <div className="starter-grid">
+                {STARTERS.map((starter, index) => (
+                  <button key={starter.question} className="starter-card" style={{ '--delay': `${index * 70}ms` } as React.CSSProperties} onClick={() => void handleSend(starter.question)}>
+                    <span>{starter.eyebrow}</span><strong>{starter.question}</strong><i aria-hidden="true">↗</i>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <div className="message-list">
+              {messages.map((message) => (
+                <article className={`message-row ${message.role}`} key={message.id}>
+                  <div className="message-body">
+                    {message.role === 'user' ? <div className="user-bubble">{message.content}</div>
+                      : message.status === 'waiting' ? (
+                        <div className="thinking" role="status"><span /><span /><span /><em>Reading the Constitution</em></div>
+                      ) : (
                         <>
-                            {messages.map((message, index) => (
-                                <div
-                                    key={message.id}
-                                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}
-                                >
-                                    <div
-                                        className={`max-w-[80%] rounded-2xl px-5 py-3 shadow-lg ${message.role === 'user'
-                                            ? 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white'
-                                            : 'glass border border-gray-200/50 dark:border-gray-700/50'
-                                            }`}
-                                    >
-                                        {message.role === 'assistant' && (
-                                            <div className="flex items-center gap-2 mb-2 pb-2 border-b border-gray-200/50 dark:border-gray-700/50">
-                                                <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center">
-                                                    <span className="text-xs">🏛️</span>
-                                                </div>
-                                                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Constitution GPT</span>
-                                            </div>
-                                        )}
-                                        <div className={`text-sm leading-relaxed whitespace-pre-wrap ${message.role === 'user' ? 'text-white' : 'text-gray-800 dark:text-gray-200'
-                                            }`}>
-                                            {message.content}
-                                        </div>
-                                        <div className={`text-xs mt-2 ${message.role === 'user' ? 'text-indigo-100' : 'text-gray-500 dark:text-gray-400'
-                                            }`}>
-                                            {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                            {isLoading && (
-                                <div className="flex justify-start animate-fade-in">
-                                    <div className="glass border border-gray-200/50 dark:border-gray-700/50 rounded-2xl px-5 py-4 shadow-lg">
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex gap-1">
-                                                <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" style={{ animationDelay: '0s' }}></div>
-                                                <div className="w-2 h-2 rounded-full bg-purple-500 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-                                                <div className="w-2 h-2 rounded-full bg-pink-500 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-                                            </div>
-                                            <span className="text-sm text-gray-600 dark:text-gray-400">Analyzing constitution...</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
+                          <AnswerContent content={message.content} />
+                          {message.status === 'streaming' && <span className="stream-caret" aria-label="Response is streaming" />}
+                          {message.status !== 'streaming' && message.content && (
+                            <div className="message-actions"><button onClick={() => void copyAnswer(message)} aria-label="Copy answer">{copiedId === message.id ? 'Copied' : 'Copy'}</button></div>
+                          )}
                         </>
-                    )}
-                    <div ref={messagesEndRef} />
-                </div>
+                      )}
+                  </div>
+                </article>
+              ))}
             </div>
-
-            {/* Input Area */}
-            <div className="glass border-t border-white/20 dark:border-white/10 px-4 py-4 backdrop-blur-xl">
-                <div className="max-w-4xl mx-auto">
-                    <div className="relative flex items-end gap-3">
-                        <div className="flex-1 relative">
-                            <textarea
-                                ref={textareaRef}
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                                placeholder="Ask about the Constitution of Nepal..."
-                                rows={1}
-                                className="w-full px-5 py-4 pr-12 rounded-2xl bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 focus:border-indigo-500 dark:focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/20 dark:focus:ring-indigo-400/20 outline-none resize-none text-gray-800 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 transition-all duration-200 shadow-lg"
-                                style={{ maxHeight: '200px' }}
-                            />
-                            {input && (
-                                <button
-                                    onClick={() => setInput('')}
-                                    className="absolute right-4 top-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-                                >
-                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            )}
-                        </div>
-                        <button
-                            onClick={() => handleSend()}
-                            disabled={!input.trim() || isLoading}
-                            className="px-6 py-4 rounded-2xl bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white font-medium shadow-lg hover:shadow-xl disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300 hover:scale-105 active:scale-95 flex items-center gap-2"
-                        >
-                            <span>Send</span>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                            </svg>
-                        </button>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 text-center">
-                        Press <kbd className="px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 font-mono">Enter</kbd> to send, <kbd className="px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 font-mono">Shift + Enter</kbd> for new line
-                    </p>
-                </div>
-            </div>
+          )}
         </div>
-    );
+
+        <footer className="composer-zone">
+          {isGenerating && <button className="stop-button" onClick={() => abortRef.current?.abort()}><span aria-hidden="true" /> Stop generating</button>}
+          <div className="composer">
+            <textarea ref={textareaRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={handleKeyDown} placeholder="Ask about Nepal’s Constitution" rows={1} aria-label="Message Constitution GPT" />
+            <div className="composer-controls">
+              {isGenerating ? (
+                <button className="send-button stop-inline-button" aria-label="Stop generating" onClick={() => abortRef.current?.abort()}>
+                  <span aria-hidden="true" />
+                </button>
+              ) : (
+                <button className="send-button" aria-label="Send message" disabled={!input.trim()} onClick={() => void handleSend()}>↑</button>
+              )}
+            </div>
+          </div>
+          <p className="disclaimer">Constitution GPT can make mistakes. Verify important legal information with an official source.</p>
+        </footer>
+      </main>
+    </div>
+  );
 }
