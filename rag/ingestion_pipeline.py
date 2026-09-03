@@ -1,10 +1,15 @@
+import hashlib
 import os
 import re
-from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
-from langchain_chroma import Chroma
 from dotenv import load_dotenv
 from langchain_core.documents import Document
+
+try:
+    from rag.chroma_connection import create_langchain_chroma, get_collection_name
+except ModuleNotFoundError:  # Support running this file directly.
+    from chroma_connection import create_langchain_chroma, get_collection_name
 
 load_dotenv()
 
@@ -15,7 +20,7 @@ DOCUMENT_PATH = os.path.join(BASE_DIR, "data", "Constitution_English.pdf")
 
 def load_documents(doc_path=DOCUMENT_PATH):
     """Load the document from the data folder."""
-    loader = PyMuPDFLoader(doc_path)
+    loader = PyPDFLoader(doc_path)
     documents = loader.load()
 
     if len(documents) == 0:
@@ -63,6 +68,64 @@ def extract_clause_letter(text):
     return None
 
 
+def split_article_into_subarticles(article_text):
+    """Split only monotonic sub-article markers, not numeric cross-references.
+
+    Constitutional text can contain a line such as ``(1) shall be so held``
+    inside sub-article (2). A plain regex split treats that reference as a new
+    sub-article. Accepting only the next expected number preserves hierarchy.
+    """
+    candidates = list(
+        re.finditer(r'\((\d+)\)\s*(?=[A-Z])', article_text)
+    )
+    boundaries = []
+    expected_number = 1
+
+    for candidate in candidates:
+        number = int(candidate.group(1))
+        if number == expected_number:
+            boundaries.append(candidate.start())
+            expected_number += 1
+
+    if not boundaries:
+        return [article_text]
+
+    sections = []
+    prefix = article_text[:boundaries[0]]
+    if prefix.strip():
+        sections.append(prefix)
+
+    for index, start in enumerate(boundaries):
+        end = boundaries[index + 1] if index + 1 < len(boundaries) else len(article_text)
+        sections.append(article_text[start:end])
+
+    return sections
+
+
+def split_content_by_byte_limit(content, max_bytes=8000):
+    """Split oversized cloud records on token boundaries under a byte limit."""
+    if len(content.encode('utf-8')) <= max_bytes:
+        return [content]
+
+    segments = []
+    current_tokens = []
+    current_size = 0
+
+    for token in re.findall(r'\S+\s*', content):
+        token_size = len(token.encode('utf-8'))
+        if current_tokens and current_size + token_size > max_bytes:
+            segments.append(''.join(current_tokens).strip())
+            current_tokens = []
+            current_size = 0
+        current_tokens.append(token)
+        current_size += token_size
+
+    if current_tokens:
+        segments.append(''.join(current_tokens).strip())
+
+    return segments
+
+
 def chunk_documents(documents):
     """
     Improved hierarchical chunking for Constitution of Nepal:
@@ -99,8 +162,9 @@ def chunk_documents(documents):
             if not article_num:
                 continue
             
-            # Split by SUB-ARTICLE "(1)", "(2)", etc.
-            subarticles = re.split(r'(?=\(\d+\))', article_text)
+            # Split by actual sequential sub-articles while preserving numeric
+            # cross-references that happen to begin a line.
+            subarticles = split_article_into_subarticles(article_text)
             
             for subarticle_text in subarticles:
                 if not subarticle_text.strip() or len(subarticle_text.strip()) < 15:
@@ -195,34 +259,73 @@ def chunk_documents(documents):
     return final_chunks
 
 
-def create_vector_store(chunks, persist_directory="db/chroma_db"):
+def create_vector_store(chunks, persist_directory=None):
     """Create and persist ChromaDB vector store with metadata"""
-    print("Creating embeddings and storing in local ChromaDB...")
+    print("Creating embeddings and updating the configured Chroma collection...")
     
-    # Ensure directory exists
-    os.makedirs(persist_directory, exist_ok=True)
+    # Explicit local paths are still supported for development and migration.
+    if persist_directory:
+        os.makedirs(persist_directory, exist_ok=True)
     
     # Convert chunks with metadata → Document objects
     documents = []
+    document_ids = []
     for chunk in chunks:
-        doc = Document(
-            page_content=chunk['content'],
-            metadata=chunk['metadata']
-        )
-        documents.append(doc)
+        content_segments = split_content_by_byte_limit(chunk['content'])
+        for segment_index, content in enumerate(content_segments, start=1):
+            metadata = chunk['metadata'].copy()
+            article_match = re.search(r'\d+', str(metadata.get('article', '')))
+            part_match = re.search(r'\d+', str(metadata.get('part', '')))
+            subarticle_match = re.search(r'\d+', str(metadata.get('subarticle', '')))
+
+            if article_match:
+                metadata['article_number'] = int(article_match.group())
+            if part_match:
+                metadata['part_number'] = int(part_match.group())
+            if subarticle_match:
+                metadata['subarticle_number'] = int(subarticle_match.group())
+            if len(content_segments) > 1:
+                metadata['segment_number'] = segment_index
+
+            parent_identity = (
+                f"part-{metadata.get('part_number', 'unknown')}-"
+                f"article-{metadata.get('article_number', 'unknown')}"
+            )
+            metadata['parent_article_id'] = parent_identity
+
+            stable_identity = "|".join([
+                parent_identity,
+                str(metadata.get('subarticle_number', '')),
+                str(metadata.get('clause', '')),
+                content.strip(),
+            ])
+            chunk_id = hashlib.sha256(stable_identity.encode('utf-8')).hexdigest()
+            metadata['chunk_id'] = chunk_id
+
+            doc = Document(page_content=content, metadata=metadata)
+            documents.append(doc)
+            document_ids.append(chunk_id)
     
     embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
     
     print("--- Creating vector store ---")
-    vectorstore = Chroma.from_documents(
-        documents=documents,
-        embedding=embedding_model,
-        persist_directory=persist_directory,
-        collection_metadata={"hnsw:space": "cosine"}
+    vectorstore = create_langchain_chroma(
+        embedding_function=embedding_model,
+        local_path=persist_directory,
     )
+    batch_size = int(os.getenv("CHROMA_UPSERT_BATCH_SIZE", "250"))
+    if batch_size < 1:
+        raise ValueError("CHROMA_UPSERT_BATCH_SIZE must be at least 1")
+    for start in range(0, len(documents), batch_size):
+        end = min(start + batch_size, len(documents))
+        vectorstore.add_documents(
+            documents[start:end],
+            ids=document_ids[start:end],
+        )
+        print(f"Uploaded {end}/{len(documents)} chunks")
     
     print("--- Finished creating vector store ---")
-    print(f"Vector store created and saved to {persist_directory}")
+    print(f"Vector store updated in collection: {get_collection_name()}")
     
     return vectorstore
 

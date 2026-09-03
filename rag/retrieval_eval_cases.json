@@ -1,0 +1,47 @@
+[
+  {
+    "query": "How is the Speaker of Parliament elected in Nepal?",
+    "expected_article": 91,
+    "expected_subarticle": 1
+  },
+  {
+    "query": "When does the office of the Speaker become vacant?",
+    "expected_article": 91,
+    "expected_subarticle": 6
+  },
+  {
+    "query": "How is the Prime Minister appointed?",
+    "expected_article": 76,
+    "expected_subarticle": 1
+  },
+  {
+    "query": "How is the President elected?",
+    "expected_article": 62,
+    "expected_subarticle": 1
+  },
+  {
+    "query": "What are the duties of citizens?",
+    "expected_article": 48,
+    "expected_subarticle": null
+  },
+  {
+    "query": "Which article protects freedom of speech and expression?",
+    "expected_article": 17,
+    "expected_subarticle": 2
+  },
+  {
+    "query": "What bodies make up the Federal Parliament?",
+    "expected_article": 83,
+    "expected_subarticle": null
+  },
+  {
+    "query": "How is the Speaker of a State Assembly chosen?",
+    "expected_article": 182,
+    "expected_subarticle": 1
+  },
+  {
+    "query": "Explain Article 91(6)",
+    "expected_article": 91,
+    "expected_subarticle": 6
+  }
+]

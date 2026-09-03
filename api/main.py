@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import sys
 import os
 from dotenv import load_dotenv
@@ -33,7 +33,7 @@ app.add_middleware(
 
 
 class QueryRequest(BaseModel):
-    question: str
+    question: str = Field(min_length=1, max_length=2000)
     
     class Config:
         json_schema_extra = {
