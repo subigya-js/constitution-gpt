@@ -208,6 +208,23 @@ def expand_query(original_query):
             ]
         )
 
+    # Speaker and Deputy Speaker provisions are concentrated in Article 91.
+    # Add an explicit lexical expansion because user phrasing often says
+    # "Speaker of parliament" while the constitutional title says
+    # "Speaker of House of Representatives".
+    if "speaker" in query_lower and (
+        "parliament" in query_lower
+        or "house of representatives" in query_lower
+        or "deputy" in query_lower
+    ):
+        expansions.extend(
+            [
+                "Article 91 Speaker Deputy Speaker House Representatives",
+                "Article 91(1) members House Representatives elect Speaker",
+                "Federal Legislature Speaker election from amongst themselves",
+            ]
+        )
+
     return list(set(expansions))  # Remove duplicates
 
 
@@ -243,6 +260,18 @@ def retrieve_and_answer(query, verbose=True):
 
     # Check if we found key articles - fetch ALL their sub-articles for completeness
     key_articles_found = set()
+
+    # Do not rely on vector similarity alone for this known constitutional
+    # phrase. The source calls Parliament's chamber the House of
+    # Representatives, so the user's wording can otherwise miss Article 91.
+    query_lower = query.lower()
+    if "speaker" in query_lower and (
+        "parliament" in query_lower
+        or "house of representatives" in query_lower
+        or "deputy" in query_lower
+    ):
+        key_articles_found.add("Article 91")
+
     for doc in all_docs[:15]:  # Check top 15 docs
         article = doc.metadata.get("article")
         # If this document seems highly relevant (contains query terms), mark article as key
