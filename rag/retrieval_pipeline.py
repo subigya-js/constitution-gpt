@@ -4,6 +4,7 @@ from functools import lru_cache
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from pydantic import BaseModel, Field
 
 try:
     from rag.chroma_connection import create_langchain_chroma
@@ -127,6 +128,61 @@ def create_structured_context(docs):
     return "\n\n".join(context_parts)
 
 
+class SupportingSection(BaseModel):
+    heading: str = Field(
+        description="A short, question-specific heading for supporting details."
+    )
+    content: str = Field(
+        description="Relevant supporting explanation with exact constitutional citations."
+    )
+
+
+class ConstitutionalAnswer(BaseModel):
+    direct_answer: str = Field(
+        description=(
+            "A direct 1-3 sentence answer. Begin with Yes or No for binary questions "
+            "and cite the strongest Article, Sub-article, and Clause immediately."
+        )
+    )
+    primary_legal_basis: str = Field(
+        description=(
+            "A concise explanation of the strongest controlling provision, including "
+            "its exact Part, Article, Sub-article, and Clause when available."
+        )
+    )
+    supporting_sections: list[SupportingSection] = Field(
+        description=(
+            "Only details needed to fully answer the question. Enumerate material "
+            "qualifications, conditions, exceptions, grounds, duties, or procedural "
+            "steps individually when the controlling provision contains a list. "
+            "Exclude unrelated provisions. Use an empty list when no extra detail is needed."
+        )
+    )
+    summary: str = Field(
+        description="A concise final conclusion that does not introduce new claims."
+    )
+    evidence_sufficient: bool = Field(
+        description="Whether the supplied constitutional text supports the answer."
+    )
+
+
+def render_constitutional_answer(answer: ConstitutionalAnswer) -> str:
+    if not answer.evidence_sufficient:
+        return (
+            "I could not retrieve enough constitutional evidence to answer "
+            "this question reliably."
+        )
+
+    sections = [answer.direct_answer.strip()]
+    sections.append(
+        "## Constitutional basis\n\n" + answer.primary_legal_basis.strip()
+    )
+    for section in answer.supporting_sections:
+        sections.append(f"## {section.heading.strip()}\n\n{section.content.strip()}")
+    sections.append("## Summary\n\n" + answer.summary.strip())
+    return "\n\n".join(section for section in sections if section.strip())
+
+
 def retrieve_and_answer(query, verbose=True):
     """Main function to retrieve documents and generate answer."""
     if not isinstance(query, str) or not query.strip():
@@ -160,42 +216,30 @@ def retrieve_and_answer(query, verbose=True):
     # Create structured context
     structured_context = create_structured_context(relevant_docs)
 
-    # Enhanced prompt for better response generation
+    # The structured schema enforces answer-first output independently of how
+    # much parent-article context retrieval supplies.
     system_prompt = """You are a constitutional law expert specializing in the Constitution of Nepal.
 
-Your task is to provide detailed, well-structured answers based on the constitutional text provided.
+Your task is to answer the user's actual question first and then explain the supporting constitutional law.
 
-FORMATTING RULES:
-1. Start with the main Part and Article title (e.g., "📘 Part 7 – Federal Executive | Article 76 – Appointment of Prime Minister")
-2. Break down the answer by Sub-articles, clearly labeled (e.g., "🔹 Sub-article (1)")
-3. For each sub-article, list the clauses if they exist (e.g., "(a)", "(b)", "(c)")
-4. Use the EXACT hierarchy from the constitution: Part → Article → Sub-article → Clause
-5. If multiple articles are relevant, present each one separately with clear headers
-6. Use emojis for visual clarity: 📘 for Parts, 🔹 for Sub-articles, • for clauses
-7. Present sub-articles in numerical order (1, 2, 3, etc.)
+ANSWER ORDER — MANDATORY:
+1. DIRECT ANSWER: Give the conclusion in 1-3 sentences before any heading or background. For a yes/no question, the first word must be "Yes" or "No". Cite the strongest controlling Article, Sub-article, and Clause in this opening when available.
+2. PRIMARY LEGAL BASIS: Explain the provision that directly controls the answer.
+3. SUPPORTING SECTIONS: Include only the qualifications, exceptions, procedures, or related provisions necessary to answer the question completely.
+4. SUMMARY: Restate the conclusion concisely without adding new claims.
 
 CONTENT RULES:
 1. Only use information from the provided constitutional text
 2. Paraphrase the content clearly while maintaining legal accuracy
 3. Do not claim that the Constitution is silent merely because a passage is missing or ambiguous. In that case say: "I could not retrieve enough constitutional evidence to answer this question reliably."
 4. Always cite the exact Part, Article, and Sub-article numbers
-5. Present ALL relevant sub-articles in order - don't skip any
-6. Combine information from multiple chunks of the same sub-article if needed
-7. Every legal claim must be supported by a Part, Article, or Sub-article present in the supplied text
-8. Distinguish the direct answer from related provisions; do not present every retrieved provision as equally relevant
-
-EXAMPLE FORMAT:
-📘 Part X – [Part Name]
-Article Y – [Article Title]
-
-🔹 Sub-article (1)
-As per Part X, Article Y, Sub-article (1):
-(a) [Content of clause a]
-(b) [Content of clause b]
-
-🔹 Sub-article (2)
-As per Part X, Article Y, Sub-article (2):
-[Content if no clauses, or list clauses if they exist]
+5. Every legal claim must be supported by a provision present in the supplied text
+6. Retrieved context is evidence, not an output checklist. Do not explain unrelated sub-articles merely because they were supplied
+7. Distinguish the direct answer from supplementary context
+8. Preserve important qualifications, exceptions, deadlines, and conditions that materially affect the answer
+9. For non-binary questions, begin with the most useful concise factual answer rather than "Yes" or "No"
+10. When a controlling provision contains a list of qualifications, conditions, exceptions, grounds, duties, or procedural steps, enumerate each material item. Never replace the list with a vague phrase such as "including other requirements"
+11. Include the Part number and title in the primary legal basis whenever they are present in the supplied text
 """
 
     user_prompt = f"""Question: {query}
@@ -203,10 +247,15 @@ As per Part X, Article Y, Sub-article (2):
 Constitutional Text:
 {structured_context}
 
-Please provide a comprehensive answer following the formatting rules. Include ALL relevant sub-articles in numerical order."""
+Return an answer following the mandatory answer order. Select only provisions relevant to the question."""
 
     # Create a ChatOpenAI model
     model = ChatOpenAI(model="gpt-4o", temperature=0)
+    structured_model = model.with_structured_output(
+        ConstitutionalAnswer,
+        method="json_schema",
+        strict=True,
+    )
 
     # Define the messages for the model
     messages = [
@@ -215,7 +264,8 @@ Please provide a comprehensive answer following the formatting rules. Include AL
     ]
 
     # Invoke the model with the structured input
-    result = model.invoke(messages)
+    result = structured_model.invoke(messages)
+    rendered_answer = render_constitutional_answer(result)
 
     # Display the response
     if verbose:
@@ -223,8 +273,8 @@ Please provide a comprehensive answer following the formatting rules. Include AL
         print("--- ANSWER ---")
         print("=" * 60)
 
-    print(result.content)
-    return result.content
+    print(rendered_answer)
+    return rendered_answer
 
 
 if __name__ == "__main__":
