@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
+import logging
 import sys
 import os
 from dotenv import load_dotenv
@@ -12,6 +14,8 @@ load_dotenv()
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from rag.retrieval_pipeline import retrieve_and_answer
+
+logger = logging.getLogger("constitution_gpt.api")
 
 app = FastAPI(
     title="Constitution GPT API",
@@ -94,17 +98,29 @@ async def chat(request: QueryRequest):
             raise HTTPException(status_code=400, detail="Question cannot be empty")
         
         # Call the RAG pipeline (verbose=False to avoid console output)
-        answer = retrieve_and_answer(request.question, verbose=False)
+        # The RAG stack uses synchronous SDK clients. Running it in FastAPI's
+        # worker pool prevents one slow model/database call from blocking the
+        # event loop for every concurrent request.
+        answer = await run_in_threadpool(
+            retrieve_and_answer,
+            request.question,
+            False,
+        )
         
         return QueryResponse(
             question=request.question,
             answer=answer
         )
     
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
+        # Never return provider errors, stack details, credentials, prompts, or
+        # internal topology to an untrusted client.
+        logger.exception("Chat request failed")
         raise HTTPException(
             status_code=500,
-            detail=f"Error processing query: {str(e)}"
+            detail="Unable to process the question at this time."
         )
 
 

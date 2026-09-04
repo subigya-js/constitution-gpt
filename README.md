@@ -163,6 +163,35 @@ python rag/retrieval_pipeline.py "What is the structure of the Federal Parliamen
 python rag/test_various_queries.py
 ```
 
+### Prompt-injection security
+
+The RAG request path treats user input, retrieved documents, and model output as
+separate untrusted boundaries:
+
+1. Input is Unicode-normalized, risk-scored, and logged by fingerprint rather
+   than raw text.
+2. A constrained router extracts a clean constitutional information need. The
+   original user message is never sent to retrieval or answer generation.
+3. Retrieved chunks containing high-confidence instruction-injection signals
+   are excluded before context construction.
+4. The answer uses a strict schema and has no tool or credential access.
+5. A per-request integrity canary, deterministic citation validation, and a
+   separate groundedness/security verification pass fail closed before output.
+6. API failures are logged server-side and return no provider or internal error
+   details to the client.
+
+Run the deterministic adversarial regression suite with:
+
+```bash
+python -m unittest rag.test_prompt_security
+```
+
+No LLM defense guarantees that every novel prompt injection will be detected.
+Do not place secrets in prompts or give this model privileged tools. Production
+deployment must additionally provide gateway-level authentication, distributed
+rate limits, request budgets, alerting, dependency timeouts, and periodic red-team
+evaluation using real model calls.
+
 ### Rebuild Database (if needed)
 ```bash
 rm -rf db/chroma_db

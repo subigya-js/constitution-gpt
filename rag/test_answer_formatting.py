@@ -66,7 +66,7 @@ class AnswerFormattingTests(unittest.TestCase):
         self.assertIn("cannot reliably provide", rendered)
         self.assertIn("official Government of Nepal", rendered)
 
-    def test_ambiguous_response_returns_clarification(self):
+    def test_ambiguous_response_does_not_render_router_generated_text(self):
         scope = QueryScope(
             category="ambiguous",
             reason="The requested subject is unclear.",
@@ -77,7 +77,7 @@ class AnswerFormattingTests(unittest.TestCase):
         )
         self.assertEqual(
             render_scope_boundary(scope),
-            "Which constitutional office do you mean?",
+            "Could you clarify which constitutional issue you want to understand?",
         )
 
     def test_direct_answer_precedes_constitutional_details(self):
