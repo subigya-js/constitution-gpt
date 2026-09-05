@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
@@ -19,7 +19,6 @@ sys.path.append(PROJECT_ROOT)
 
 from rag.retrieval_pipeline import retrieve_and_answer
 from rag.chroma_connection import create_chroma_client
-from api.rate_limit import check_chat_rate_limit, get_redis_client
 from api.execution_limits import (
     CapacityExceededError,
     RagExecutionTimeoutError,
@@ -135,7 +134,6 @@ async def liveness():
 async def readiness():
     """Confirm that dependencies required by chat requests are available."""
     try:
-        await get_redis_client().ping()
         await asyncio.wait_for(
             run_in_threadpool(lambda: create_chroma_client().heartbeat()),
             timeout=positive_number("CHROMA_HEALTH_TIMEOUT_SECONDS", 5),
@@ -150,12 +148,12 @@ async def readiness():
     return {
         "status": "ready",
         "service": "Constitution GPT API",
-        "dependencies": {"redis": "ok", "chroma": "ok"},
+        "dependencies": {"chroma": "ok"},
     }
 
 
 @app.post("/api/chat", response_model=QueryResponse)
-async def chat(request: QueryRequest, http_request: Request, response: Response):
+async def chat(request: QueryRequest):
     """
     Query the Constitution of Nepal using RAG.
     
@@ -164,31 +162,6 @@ async def chat(request: QueryRequest, http_request: Request, response: Response)
     Returns a structured answer with proper citations and hierarchical structure.
     """
     try:
-        try:
-            rate_limit = await check_chat_rate_limit(
-                http_request.client.host if http_request.client else None
-            )
-        except RuntimeError:
-            raise HTTPException(
-                status_code=503,
-                detail="Request protection is temporarily unavailable.",
-            )
-
-        response.headers["X-RateLimit-Limit"] = os.getenv(
-            "RATE_LIMIT_REQUESTS", "10"
-        )
-        response.headers["X-RateLimit-Remaining"] = str(rate_limit.remaining)
-        if not rate_limit.allowed:
-            raise HTTPException(
-                status_code=429,
-                detail="Too many requests. Please try again later.",
-                headers={
-                    "Retry-After": str(rate_limit.retry_after_seconds),
-                    "X-RateLimit-Limit": os.getenv("RATE_LIMIT_REQUESTS", "10"),
-                    "X-RateLimit-Remaining": "0",
-                },
-            )
-
         if not request.question or not request.question.strip():
             raise HTTPException(status_code=400, detail="Question cannot be empty")
         

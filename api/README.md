@@ -39,17 +39,11 @@ Ensure your `.env` file in the project root contains:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
-REDIS_URL=redis://localhost:6379/0
-RATE_LIMIT_REQUESTS=10
-RATE_LIMIT_WINDOW_SECONDS=60
 ```
 
 Use a comma-separated list of exact origins. On Render, replace the local values
 with the Vercel production URL and any custom domain; omit URL paths and trailing
 slashes.
-
-`REDIS_URL` is mandatory for chat requests. The API uses an atomic Redis-backed
-sliding window so limits remain correct across processes and deployments.
 
 ### 3. Ensure Vector Database Exists
 
@@ -123,8 +117,8 @@ Process liveness endpoint. It does not call external dependencies.
 ```
 
 ### GET `/health/ready`
-Checks Redis and Chroma. It returns HTTP 503 when either required dependency is
-unavailable. The legacy `/health` path has the same readiness behavior.
+Checks Chroma. It returns HTTP 503 when Chroma is unavailable. The legacy
+`/health` path has the same readiness behavior.
 
 ### POST `/api/chat`
 Query the Constitution of Nepal.
@@ -290,13 +284,13 @@ python rag/ingestion_pipeline.py
 
 - **Average Response Time**: 2-4 seconds (depends on query complexity)
 - **Concurrent Requests**: Supports multiple simultaneous requests
-- **Rate Limiting**: Redis-backed sliding window on `/api/chat`; defaults to 10 requests per 60 seconds per client
+- **Capacity Protection**: Concurrent RAG execution is bounded per API process
 
 ## 🔒 Security Considerations
 
 For production deployment:
 1. **Add Authentication**: Implement API key or JWT authentication
-2. **Rate Limiting**: Tune the Redis-backed limits and alert on repeated 429/503 responses
+2. **Abuse Prevention**: Add gateway rate limiting before opening anonymous access at scale
 3. **HTTPS**: Use HTTPS in production
 4. **Environment Variables**: Never commit `.env` file
 5. **CORS**: Set `FRONTEND_ORIGINS` to only your production frontend domains

@@ -132,10 +132,6 @@ OPENAI_MAX_RETRIES=2
 
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
-REDIS_URL=redis://localhost:6379/0
-RATE_LIMIT_REQUESTS=10
-RATE_LIMIT_WINDOW_SECONDS=60
-
 MAX_CONCURRENT_RAG_REQUESTS=3
 RAG_QUEUE_TIMEOUT_SECONDS=1
 RAG_REQUEST_TIMEOUT_SECONDS=90
@@ -151,10 +147,6 @@ For production, replace the local origins with the exact Vercel and custom-domai
 origins that may call the API. Separate multiple origins with commas and do not
 include URL paths or trailing slashes.
 
-`REDIS_URL` is required by the distributed `/api/chat` rate limiter. In
-production, use the internal URL from your managed Redis provider. Health and
-documentation endpoints are not rate limited.
-
 Copy [`.env.example`](.env.example) to `.env` for local development. Configure
 the same names in Render's environment settings for production; never commit
 the real secret values.
@@ -167,9 +159,6 @@ the real secret values.
 | `OPENAI_REQUEST_TIMEOUT_SECONDS` | No | `45` | Deadline for each OpenAI SDK operation |
 | `OPENAI_MAX_RETRIES` | No | `2` | SDK retries for transient OpenAI failures; `0` disables retries |
 | `FRONTEND_ORIGINS` | Yes | — | Comma-separated browser origin allowlist |
-| `REDIS_URL` | Yes | — | Shared Redis connection used by rate limiting |
-| `RATE_LIMIT_REQUESTS` | No | `10` | Requests permitted per client in one window |
-| `RATE_LIMIT_WINDOW_SECONDS` | No | `60` | Sliding rate-limit window |
 | `MAX_CONCURRENT_RAG_REQUESTS` | No | `3` | Maximum RAG jobs executing in each API process |
 | `RAG_QUEUE_TIMEOUT_SECONDS` | No | `1` | Time to wait for an execution slot before returning `429` |
 | `RAG_REQUEST_TIMEOUT_SECONDS` | No | `90` | Client-facing deadline for the complete RAG pipeline |
@@ -180,11 +169,10 @@ the real secret values.
 | `CHROMA_COLLECTION` | No | `constitution_english` in cloud | Active collection name; use versioned names for safe releases |
 | `CHROMA_HOST` | No | Chroma Cloud default | Custom Chroma host override |
 
-The API returns `429` when the per-client rate limit is exceeded or no RAG
-execution slot becomes available. It returns `504` when the overall RAG deadline
-expires and `503` when the Redis protection layer is unavailable. Timed-out
-Python worker threads cannot be killed safely, so their concurrency slots remain
-occupied until the underlying provider call finishes.
+The API returns `429` when no RAG execution slot becomes available and `504`
+when the overall RAG deadline expires. Timed-out Python worker threads cannot be
+killed safely, so their concurrency slots remain occupied until the underlying
+provider call finishes.
 
 For the initial Render deployment, use one Uvicorn worker. The concurrency limit
 is per process; increasing the worker count multiplies both concurrency and the
@@ -256,8 +244,8 @@ python -m unittest rag.test_prompt_security
 
 No LLM defense guarantees that every novel prompt injection will be detected.
 Do not place secrets in prompts or give this model privileged tools. Production
-deployment must additionally provide gateway-level authentication, distributed
-rate limits, request budgets, alerting, dependency timeouts, and periodic red-team
+deployment should additionally provide gateway-level authentication or rate
+limits, request budgets, alerting, dependency timeouts, and periodic red-team
 evaluation using real model calls.
 
 ### Rebuild Database (if needed)
