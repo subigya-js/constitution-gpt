@@ -5,17 +5,55 @@ from starlette.concurrency import run_in_threadpool
 import logging
 import sys
 import os
+from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
-# Load environment variables first
-load_dotenv()
+# Load environment variables from the project root first.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 
 # Add parent directory to path to import rag module
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(PROJECT_ROOT)
 
 from rag.retrieval_pipeline import retrieve_and_answer
 
 logger = logging.getLogger("constitution_gpt.api")
+
+
+def get_frontend_origins() -> list[str]:
+    """Read and validate the comma-separated browser origins allowed by CORS."""
+    configured_origins = os.getenv("FRONTEND_ORIGINS", "")
+    origins = []
+
+    for configured_origin in configured_origins.split(","):
+        origin = configured_origin.strip().rstrip("/")
+        if not origin:
+            continue
+
+        parsed = urlsplit(origin)
+        is_origin = (
+            parsed.scheme in {"http", "https"}
+            and bool(parsed.netloc)
+            and not parsed.path
+            and not parsed.query
+            and not parsed.fragment
+        )
+        if not is_origin:
+            raise RuntimeError(
+                "Invalid FRONTEND_ORIGINS entry. Use comma-separated origins "
+                "such as https://example.com (without paths)."
+            )
+
+        if origin not in origins:
+            origins.append(origin)
+
+    if not origins:
+        raise RuntimeError(
+            "FRONTEND_ORIGINS is required. For local development, set it to "
+            "http://localhost:3000,http://127.0.0.1:3000."
+        )
+
+    return origins
 
 app = FastAPI(
     title="Constitution GPT API",
@@ -23,16 +61,13 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Configure CORS to allow requests from Next.js frontend
+# Only browser origins explicitly configured for this environment may call the API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # Next.js dev server
-        "http://127.0.0.1:3000",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=get_frontend_origins(),
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
 

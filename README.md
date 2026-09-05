@@ -127,7 +127,12 @@ pip install -r requirements.txt
 Create `.env` file in the root directory:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
+FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
+
+For production, replace the local origins with the exact Vercel and custom-domain
+origins that may call the API. Separate multiple origins with commas and do not
+include URL paths or trailing slashes.
 
 ### 5. Build Vector Database
 ```bash

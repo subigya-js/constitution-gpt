@@ -16,7 +16,12 @@ Create a `.env` file in the project root:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
+FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
+
+`FRONTEND_ORIGINS` is a comma-separated allowlist. In production, set it on
+Render to the exact Vercel/custom-domain origins, for example
+`https://constitution-gpt.vercel.app,https://constitution.example.com`.
 
 ### 2. Install Python Dependencies
 
@@ -198,7 +203,7 @@ constitution-gpt/
 - **Solution**: Make sure API server is running at http://localhost:8000
 
 **Error**: CORS errors
-- **Solution**: API is configured for `localhost:3000`. If using different port, update `api/main.py`
+- **Solution**: Add the frontend's exact origin to `FRONTEND_ORIGINS` and restart the API. Origins must not contain URL paths.
 
 ### Port Conflicts
 

@@ -38,7 +38,12 @@ Ensure your `.env` file in the project root contains:
 
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
+FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 ```
+
+Use a comma-separated list of exact origins. On Render, replace the local values
+with the Vercel production URL and any custom domain; omit URL paths and trailing
+slashes.
 
 ### 3. Ensure Vector Database Exists
 
@@ -250,7 +255,7 @@ Don't forget to update the frontend to use the new port!
 ### CORS Errors
 
 If you get CORS errors from the frontend:
-1. Check that the frontend URL is in the `allow_origins` list in `api/main.py`
+1. Check that the frontend's exact origin is present in `FRONTEND_ORIGINS`
 2. Restart the API server after making changes
 
 ### Module Import Errors
@@ -283,7 +288,7 @@ For production deployment:
 2. **Rate Limiting**: Add rate limiting to prevent abuse
 3. **HTTPS**: Use HTTPS in production
 4. **Environment Variables**: Never commit `.env` file
-5. **CORS**: Restrict `allow_origins` to your production domain
+5. **CORS**: Set `FRONTEND_ORIGINS` to only your production frontend domains
 
 ## 📝 License
 
