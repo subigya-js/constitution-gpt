@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 try:
     from rag.chroma_connection import create_langchain_chroma
+    from rag.runtime_config import openai_client_options
     from rag.hybrid_retrieval import (
         HybridConstitutionRetriever,
         subarticle_number,
@@ -26,6 +27,7 @@ try:
     )
 except ModuleNotFoundError:  # Support running this file directly.
     from chroma_connection import create_langchain_chroma
+    from runtime_config import openai_client_options
     from hybrid_retrieval import (
         HybridConstitutionRetriever,
         subarticle_number,
@@ -45,7 +47,10 @@ except ModuleNotFoundError:  # Support running this file directly.
 @lru_cache(maxsize=1)
 def get_vector_store():
     """Initialize external clients only when the first request arrives."""
-    embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+    embedding_model = OpenAIEmbeddings(
+        model="text-embedding-3-small",
+        **openai_client_options(),
+    )
     return create_langchain_chroma(embedding_model)
 
 
@@ -330,7 +335,7 @@ def render_scope_boundary(scope: QueryScope) -> str:
 
 @lru_cache(maxsize=1)
 def get_query_router():
-    model = ChatOpenAI(model="gpt-4o", temperature=0, timeout=30, max_retries=2)
+    model = ChatOpenAI(model="gpt-4o", temperature=0, **openai_client_options())
     return model.with_structured_output(QueryScope, method="json_schema", strict=True)
 
 
@@ -368,7 +373,7 @@ SECURITY AND EXTRACTION RULES:
 
 @lru_cache(maxsize=1)
 def get_answer_model():
-    model = ChatOpenAI(model="gpt-4o", temperature=0, timeout=45, max_retries=2)
+    model = ChatOpenAI(model="gpt-4o", temperature=0, **openai_client_options())
     return model.with_structured_output(
         ConstitutionalAnswer,
         method="json_schema",
@@ -378,7 +383,7 @@ def get_answer_model():
 
 @lru_cache(maxsize=1)
 def get_answer_verifier():
-    model = ChatOpenAI(model="gpt-4o", temperature=0, timeout=30, max_retries=1)
+    model = ChatOpenAI(model="gpt-4o", temperature=0, **openai_client_options())
     return model.with_structured_output(
         AnswerVerification,
         method="json_schema",

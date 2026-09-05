@@ -39,11 +39,17 @@ Ensure your `.env` file in the project root contains:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+REDIS_URL=redis://localhost:6379/0
+RATE_LIMIT_REQUESTS=10
+RATE_LIMIT_WINDOW_SECONDS=60
 ```
 
 Use a comma-separated list of exact origins. On Render, replace the local values
 with the Vercel production URL and any custom domain; omit URL paths and trailing
 slashes.
+
+`REDIS_URL` is mandatory for chat requests. The API uses an atomic Redis-backed
+sliding window so limits remain correct across processes and deployments.
 
 ### 3. Ensure Vector Database Exists
 
@@ -82,7 +88,7 @@ The API will be available at:
 For production deployment:
 
 ```bash
-uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 1 --proxy-headers
 ```
 
 ## 📖 API Endpoints
@@ -97,23 +103,28 @@ Root endpoint with API information.
   "version": "1.0.0",
   "endpoints": {
     "/": "API information",
-    "/health": "Health check",
+    "/health/live": "Liveness check",
+    "/health/ready": "Dependency readiness check",
     "/api/chat": "Query the Constitution (POST)",
     "/docs": "Interactive API documentation"
   }
 }
 ```
 
-### GET `/health`
-Health check endpoint.
+### GET `/health/live`
+Process liveness endpoint. It does not call external dependencies.
 
 **Response:**
 ```json
 {
-  "status": "healthy",
+  "status": "alive",
   "service": "Constitution GPT API"
 }
 ```
+
+### GET `/health/ready`
+Checks Redis and Chroma. It returns HTTP 503 when either required dependency is
+unavailable. The legacy `/health` path has the same readiness behavior.
 
 ### POST `/api/chat`
 Query the Constitution of Nepal.
@@ -153,7 +164,7 @@ Query the Constitution of Nepal.
 
 ```bash
 # Health check
-curl http://localhost:8000/health
+curl http://localhost:8000/health/ready
 
 # Query the constitution
 curl -X POST http://localhost:8000/api/chat \
@@ -279,13 +290,13 @@ python rag/ingestion_pipeline.py
 
 - **Average Response Time**: 2-4 seconds (depends on query complexity)
 - **Concurrent Requests**: Supports multiple simultaneous requests
-- **Rate Limiting**: Not implemented (add if needed for production)
+- **Rate Limiting**: Redis-backed sliding window on `/api/chat`; defaults to 10 requests per 60 seconds per client
 
 ## 🔒 Security Considerations
 
 For production deployment:
 1. **Add Authentication**: Implement API key or JWT authentication
-2. **Rate Limiting**: Add rate limiting to prevent abuse
+2. **Rate Limiting**: Tune the Redis-backed limits and alert on repeated 429/503 responses
 3. **HTTPS**: Use HTTPS in production
 4. **Environment Variables**: Never commit `.env` file
 5. **CORS**: Set `FRONTEND_ORIGINS` to only your production frontend domains

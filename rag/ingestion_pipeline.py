@@ -8,8 +8,10 @@ from langchain_core.documents import Document
 
 try:
     from rag.chroma_connection import create_langchain_chroma, get_collection_name
+    from rag.runtime_config import openai_client_options
 except ModuleNotFoundError:  # Support running this file directly.
     from chroma_connection import create_langchain_chroma, get_collection_name
+    from runtime_config import openai_client_options
 
 load_dotenv()
 
@@ -306,7 +308,10 @@ def create_vector_store(chunks, persist_directory=None):
             documents.append(doc)
             document_ids.append(chunk_id)
     
-    embedding_model = OpenAIEmbeddings(model="text-embedding-3-small")
+    embedding_model = OpenAIEmbeddings(
+        model="text-embedding-3-small",
+        **openai_client_options(),
+    )
     
     print("--- Creating vector store ---")
     vectorstore = create_langchain_chroma(

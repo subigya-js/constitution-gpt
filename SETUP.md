@@ -17,11 +17,16 @@ Create a `.env` file in the project root:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+REDIS_URL=redis://localhost:6379/0
+RATE_LIMIT_REQUESTS=10
+RATE_LIMIT_WINDOW_SECONDS=60
 ```
 
 `FRONTEND_ORIGINS` is a comma-separated allowlist. In production, set it on
 Render to the exact Vercel/custom-domain origins, for example
 `https://constitution-gpt.vercel.app,https://constitution.example.com`.
+`REDIS_URL` must point to a local or managed Redis instance. Chat requests fail
+closed with `503` if Redis is unavailable, preventing unmetered OpenAI usage.
 
 ### 2. Install Python Dependencies
 
@@ -68,7 +73,8 @@ python -m uvicorn api.main:app --reload --port 8000
 The API will be available at:
 - **API**: http://localhost:8000
 - **Docs**: http://localhost:8000/docs
-- **Health**: http://localhost:8000/health
+- **Liveness**: http://localhost:8000/health/live
+- **Readiness**: http://localhost:8000/health/ready
 
 ### Terminal 2: Start the Frontend
 
@@ -85,9 +91,10 @@ The frontend will be available at:
 
 1. **Check API Health**:
    ```bash
-   curl http://localhost:8000/health
+   curl http://localhost:8000/health/ready
    ```
-   Should return: `{"status":"healthy","service":"Constitution GPT API"}`
+   A ready API returns HTTP 200 with `"status":"ready"`. A Redis or Chroma
+   failure returns HTTP 503 with `"status":"not_ready"`.
 
 2. **Open Frontend**:
    Navigate to http://localhost:3000
@@ -122,7 +129,7 @@ The frontend will be available at:
 │  ┌──────────────────────────────────────────────────────┐  │
 │  │         API Endpoints                                │  │
 │  │  - POST /api/chat                                    │  │
-│  │  - GET /health                                       │  │
+│  │  - GET /health/live and /health/ready                │  │
 │  │  - GET /docs                                         │  │
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘

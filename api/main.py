@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 import logging
 import sys
 import os
+import asyncio
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
 
@@ -16,6 +18,14 @@ load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 sys.path.append(PROJECT_ROOT)
 
 from rag.retrieval_pipeline import retrieve_and_answer
+from rag.chroma_connection import create_chroma_client
+from api.rate_limit import check_chat_rate_limit, get_redis_client
+from api.execution_limits import (
+    CapacityExceededError,
+    RagExecutionTimeoutError,
+    get_rag_execution_limiter,
+    positive_number,
+)
 
 logger = logging.getLogger("constitution_gpt.api")
 
@@ -103,24 +113,49 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "/": "API information",
-            "/health": "Health check",
+            "/health/live": "Liveness check",
+            "/health/ready": "Dependency readiness check",
             "/api/chat": "Query the Constitution (POST)",
             "/docs": "Interactive API documentation",
         }
     }
 
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint."""
+@app.get("/health/live")
+async def liveness():
+    """Confirm that the API process can serve requests."""
     return {
-        "status": "healthy",
+        "status": "alive",
         "service": "Constitution GPT API"
     }
 
 
+@app.get("/health")
+@app.get("/health/ready")
+async def readiness():
+    """Confirm that dependencies required by chat requests are available."""
+    try:
+        await get_redis_client().ping()
+        await asyncio.wait_for(
+            run_in_threadpool(lambda: create_chroma_client().heartbeat()),
+            timeout=positive_number("CHROMA_HEALTH_TIMEOUT_SECONDS", 5),
+        )
+    except Exception:
+        logger.exception("Readiness check failed")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "not_ready", "service": "Constitution GPT API"},
+        )
+
+    return {
+        "status": "ready",
+        "service": "Constitution GPT API",
+        "dependencies": {"redis": "ok", "chroma": "ok"},
+    }
+
+
 @app.post("/api/chat", response_model=QueryResponse)
-async def chat(request: QueryRequest):
+async def chat(request: QueryRequest, http_request: Request, response: Response):
     """
     Query the Constitution of Nepal using RAG.
     
@@ -129,6 +164,31 @@ async def chat(request: QueryRequest):
     Returns a structured answer with proper citations and hierarchical structure.
     """
     try:
+        try:
+            rate_limit = await check_chat_rate_limit(
+                http_request.client.host if http_request.client else None
+            )
+        except RuntimeError:
+            raise HTTPException(
+                status_code=503,
+                detail="Request protection is temporarily unavailable.",
+            )
+
+        response.headers["X-RateLimit-Limit"] = os.getenv(
+            "RATE_LIMIT_REQUESTS", "10"
+        )
+        response.headers["X-RateLimit-Remaining"] = str(rate_limit.remaining)
+        if not rate_limit.allowed:
+            raise HTTPException(
+                status_code=429,
+                detail="Too many requests. Please try again later.",
+                headers={
+                    "Retry-After": str(rate_limit.retry_after_seconds),
+                    "X-RateLimit-Limit": os.getenv("RATE_LIMIT_REQUESTS", "10"),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
+
         if not request.question or not request.question.strip():
             raise HTTPException(status_code=400, detail="Question cannot be empty")
         
@@ -136,11 +196,23 @@ async def chat(request: QueryRequest):
         # The RAG stack uses synchronous SDK clients. Running it in FastAPI's
         # worker pool prevents one slow model/database call from blocking the
         # event loop for every concurrent request.
-        answer = await run_in_threadpool(
-            retrieve_and_answer,
-            request.question,
-            False,
-        )
+        try:
+            answer = await get_rag_execution_limiter().run(
+                retrieve_and_answer,
+                request.question,
+                False,
+            )
+        except CapacityExceededError:
+            raise HTTPException(
+                status_code=429,
+                detail="The service is at capacity. Please try again shortly.",
+                headers={"Retry-After": "2"},
+            )
+        except RagExecutionTimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="The request exceeded its processing deadline.",
+            )
         
         return QueryResponse(
             question=request.question,

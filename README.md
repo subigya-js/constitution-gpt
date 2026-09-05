@@ -127,12 +127,75 @@ pip install -r requirements.txt
 Create `.env` file in the root directory:
 ```env
 OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_REQUEST_TIMEOUT_SECONDS=45
+OPENAI_MAX_RETRIES=2
+
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+
+REDIS_URL=redis://localhost:6379/0
+RATE_LIMIT_REQUESTS=10
+RATE_LIMIT_WINDOW_SECONDS=60
+
+MAX_CONCURRENT_RAG_REQUESTS=3
+RAG_QUEUE_TIMEOUT_SECONDS=1
+RAG_REQUEST_TIMEOUT_SECONDS=90
+CHROMA_HEALTH_TIMEOUT_SECONDS=5
+
+CHROMA_API_KEY=your_chroma_api_key_here
+CHROMA_TENANT=your_chroma_tenant_here
+CHROMA_DATABASE=your_chroma_database_here
+CHROMA_COLLECTION=constitution_english
 ```
 
 For production, replace the local origins with the exact Vercel and custom-domain
 origins that may call the API. Separate multiple origins with commas and do not
 include URL paths or trailing slashes.
+
+`REDIS_URL` is required by the distributed `/api/chat` rate limiter. In
+production, use the internal URL from your managed Redis provider. Health and
+documentation endpoints are not rate limited.
+
+Copy [`.env.example`](.env.example) to `.env` for local development. Configure
+the same names in Render's environment settings for production; never commit
+the real secret values.
+
+#### Runtime protection variables
+
+| Variable | Required | Default | Purpose |
+|---|---:|---:|---|
+| `OPENAI_API_KEY` | Yes | — | Server-side OpenAI credential |
+| `OPENAI_REQUEST_TIMEOUT_SECONDS` | No | `45` | Deadline for each OpenAI SDK operation |
+| `OPENAI_MAX_RETRIES` | No | `2` | SDK retries for transient OpenAI failures; `0` disables retries |
+| `FRONTEND_ORIGINS` | Yes | — | Comma-separated browser origin allowlist |
+| `REDIS_URL` | Yes | — | Shared Redis connection used by rate limiting |
+| `RATE_LIMIT_REQUESTS` | No | `10` | Requests permitted per client in one window |
+| `RATE_LIMIT_WINDOW_SECONDS` | No | `60` | Sliding rate-limit window |
+| `MAX_CONCURRENT_RAG_REQUESTS` | No | `3` | Maximum RAG jobs executing in each API process |
+| `RAG_QUEUE_TIMEOUT_SECONDS` | No | `1` | Time to wait for an execution slot before returning `429` |
+| `RAG_REQUEST_TIMEOUT_SECONDS` | No | `90` | Client-facing deadline for the complete RAG pipeline |
+| `CHROMA_HEALTH_TIMEOUT_SECONDS` | No | `5` | Maximum readiness-probe wait for Chroma |
+| `CHROMA_API_KEY` | Production | — | Chroma Cloud credential |
+| `CHROMA_TENANT` | Production | — | Chroma Cloud tenant identifier |
+| `CHROMA_DATABASE` | Production | — | Chroma Cloud database name |
+| `CHROMA_COLLECTION` | No | `constitution_english` in cloud | Active collection name; use versioned names for safe releases |
+| `CHROMA_HOST` | No | Chroma Cloud default | Custom Chroma host override |
+
+The API returns `429` when the per-client rate limit is exceeded or no RAG
+execution slot becomes available. It returns `504` when the overall RAG deadline
+expires and `503` when the Redis protection layer is unavailable. Timed-out
+Python worker threads cannot be killed safely, so their concurrency slots remain
+occupied until the underlying provider call finishes.
+
+For the initial Render deployment, use one Uvicorn worker. The concurrency limit
+is per process; increasing the worker count multiplies both concurrency and the
+in-memory retrieval index. Start with:
+
+```bash
+uvicorn api.main:app --host 0.0.0.0 --port "$PORT" --workers 1 --proxy-headers
+```
+
+Set Render's health-check path to `/health/ready`. Use `/health/live` only to
+check whether the Python process itself is responsive.
 
 ### 5. Build Vector Database
 ```bash
