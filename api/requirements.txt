@@ -1,0 +1,3 @@
+# Keep backend dependencies centralized in the repository-level manifest.
+# Install from the repository root with: pip install -r api/requirements.txt
+-r ../requirements.txt
