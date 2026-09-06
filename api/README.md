@@ -16,7 +16,7 @@ FastAPI backend server for Constitution GPT that provides RESTful API endpoints 
 - Python 3.8+
 - Virtual environment (recommended)
 - OpenAI API key
-- ChromaDB vector database (created by running `rag/ingestion_pipeline.py`)
+- Chroma Cloud credentials and an indexed collection
 
 ## 🚀 Installation
 
@@ -47,13 +47,13 @@ slashes.
 
 ### 3. Ensure Vector Database Exists
 
-The API requires the ChromaDB vector database. If you haven't created it yet:
+The API requires an indexed Chroma Cloud collection. To populate or update it:
 
 ```bash
 python rag/ingestion_pipeline.py
 ```
 
-This will create the `db/chroma_db/` directory with the indexed constitution.
+This uploads the indexed constitution to the configured Chroma Cloud collection.
 
 ## 🎮 Running the API
 

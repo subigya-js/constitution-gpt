@@ -193,7 +193,7 @@ This will:
 - Load the Constitution PDF
 - Create 1,719 semantic chunks with metadata
 - Generate embeddings using OpenAI
-- Store in ChromaDB (`db/chroma_db/`)
+- Store in the configured Chroma Cloud collection
 
 ---
 
@@ -248,9 +248,8 @@ deployment should additionally provide gateway-level authentication or rate
 limits, request budgets, alerting, dependency timeouts, and periodic red-team
 evaluation using real model calls.
 
-### Rebuild Database (if needed)
+### Rebuild the Cloud Collection (if needed)
 ```bash
-rm -rf db/chroma_db
 python rag/ingestion_pipeline.py
 ```
 
@@ -266,8 +265,6 @@ constitution-gpt/
 │   ├── ingestion_pipeline.py           # Chunking + Vector DB creation
 │   ├── retrieval_pipeline.py           # Query processing + Answer generation
 │   └── test_various_queries.py         # Test suite
-├── db/
-│   └── chroma_db/                      # Vector database (auto-generated)
 ├── venv/                               # Virtual environment
 ├── .env                                # Environment variables
 ├── requirements.txt                    # Python dependencies

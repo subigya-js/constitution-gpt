@@ -261,13 +261,9 @@ def chunk_documents(documents):
     return final_chunks
 
 
-def create_vector_store(chunks, persist_directory=None):
+def create_vector_store(chunks):
     """Create and persist ChromaDB vector store with metadata"""
     print("Creating embeddings and updating the configured Chroma collection...")
-    
-    # Explicit local paths are still supported for development and migration.
-    if persist_directory:
-        os.makedirs(persist_directory, exist_ok=True)
     
     # Convert chunks with metadata → Document objects
     documents = []
@@ -314,10 +310,7 @@ def create_vector_store(chunks, persist_directory=None):
     )
     
     print("--- Creating vector store ---")
-    vectorstore = create_langchain_chroma(
-        embedding_function=embedding_model,
-        local_path=persist_directory,
-    )
+    vectorstore = create_langchain_chroma(embedding_function=embedding_model)
     batch_size = int(os.getenv("CHROMA_UPSERT_BATCH_SIZE", "250"))
     if batch_size < 1:
         raise ValueError("CHROMA_UPSERT_BATCH_SIZE must be at least 1")

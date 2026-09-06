@@ -44,7 +44,7 @@ This will:
 - Load the Constitution PDF (240 pages)
 - Create 1,719 semantic chunks with metadata
 - Generate embeddings using OpenAI
-- Store in `db/chroma_db/`
+- Store in the configured Chroma Cloud collection
 
 ### 4. Install Frontend Dependencies
 
@@ -177,7 +177,6 @@ constitution-gpt/
 │   ├── package.json
 │   └── README.md
 ├── db/
-│   └── chroma_db/          # Vector database (auto-generated)
 ├── .env                    # Environment variables
 ├── requirements.txt        # Python dependencies
 └── README.md              # Main documentation
