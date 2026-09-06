@@ -11,7 +11,7 @@ interface Message {
   status: MessageStatus;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 const STARTERS = [
   { eyebrow: 'Federal executive', question: 'How is the Prime Minister elected in Nepal?' },
