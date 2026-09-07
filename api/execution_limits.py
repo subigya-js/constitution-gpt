@@ -78,5 +78,5 @@ class RagExecutionLimiter:
 
 @lru_cache(maxsize=1)
 def get_rag_execution_limiter() -> RagExecutionLimiter:
-    capacity = positive_integer("MAX_CONCURRENT_RAG_REQUESTS", 3)
+    capacity = positive_integer("MAX_CONCURRENT_RAG_REQUESTS", 2)
     return RagExecutionLimiter(capacity)
