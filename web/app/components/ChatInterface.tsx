@@ -15,7 +15,7 @@ const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').rep
 
 const STARTERS = [
   { eyebrow: 'Federal executive', question: 'How is the Prime Minister elected in Nepal?' },
-  { eyebrow: 'Fundamental rights', question: 'What rights does the Constitution guarantee?' },
+  { eyebrow: 'Article 91', question: 'What does Article 91 mention?' },
   { eyebrow: 'Civic responsibility', question: 'What are the constitutional duties of citizens?' },
   { eyebrow: 'Federal parliament', question: 'How is Nepal’s Federal Parliament structured?' },
 ];

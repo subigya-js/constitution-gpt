@@ -88,7 +88,6 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(255,255,2
   .message-list { padding: 78px 16px 190px; }
   .empty-state { padding: 90px 16px 180px; }
   .starter-grid { grid-template-columns: 1fr; }
-  .starter-card:nth-child(n+3) { display: none; }
   .message-row.assistant { gap: 10px; }
   .user-bubble { max-width: 88%; }
   .composer-zone { padding-right: 10px; padding-left: 10px; }
