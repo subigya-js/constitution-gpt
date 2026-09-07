@@ -1,427 +1,403 @@
-# 🏛️ Constitution GPT
-### An Open-Source Constitutional Intelligence System Powered by RAG + LLMs
+# Constitution GPT
 
-Constitution GPT is an **open-source intelligence system designed specifically for constitutional, legal, policy, and governance documents**, enabling precise retrieval, interpretation, and question-answering **grounded in authoritative texts**.
+An open-source, retrieval-augmented chatbot for exploring the Constitution of
+Nepal through clear answers grounded in the constitutional text.
 
-This project helps students, lawyers, policymakers, researchers, and developers build systems that require:
-- ✅ Accurate referencing with Part/Article/Sub-article citations
-- ✅ Context-aware hierarchical understanding
-- ✅ Traceable legal reasoning
-- ✅ Question answering based on verified constitutional sources
+[Live application](https://constitution.subigyasubedi.com.np) ·
+[API documentation](https://constitution-gpt-w91k.onrender.com/docs)
 
----
+Constitution GPT is built for questions such as:
 
-## 🌟 Why Constitution GPT?
+- How is the Prime Minister appointed?
+- Which fundamental rights are guaranteed to citizens?
+- How is the Federal Parliament structured?
+- What constitutional duties do citizens have?
 
-> **Legal and constitutional documents are long, complex, and interconnected.
-Traditional search is too shallow.
-LLMs alone hallucinate.
-Constitution GPT fills this gap.**
+Instead of asking a language model to answer from memory, the application first
+retrieves relevant provisions from an indexed copy of the Constitution. It then
+generates a structured answer and checks that the cited Articles and
+Sub-articles exist in the retrieved evidence.
 
-### Key Advantages:
-- 📘 **Hierarchical Understanding**: Preserves Part → Article → Sub-article → Clause structure
-- 🎯 **Smart Retrieval**: Query expansion handles semantic variations ("elected" vs "appointed")
-- 🔍 **Complete Coverage**: Automatically fetches all sub-articles from relevant articles
-- 📊 **Structured Responses**: Beautiful, citation-backed answers with proper hierarchy
-- 🌐 **Generic & Extensible**: Works for ANY constitutional topic, not hardcoded
+> Constitution GPT is an educational and research tool, not a substitute for
+> the official Constitution or professional legal advice.
 
----
+## What the project demonstrates
 
-## 🚀 Current Features
+- Hierarchy-aware PDF ingestion that preserves Part, Article, Sub-article, and
+  Clause metadata.
+- Hybrid retrieval combining semantic search, lexical search, and exact
+  constitutional citation matching.
+- Reciprocal-rank fusion, deduplication, reranking, and parent-article expansion.
+- Structured OpenAI responses with deterministic citation validation and a
+  second groundedness check.
+- Prompt-injection defenses across user input, retrieved documents, and model
+  output.
+- A FastAPI backend with CORS validation, concurrency limits, timeouts, and
+  liveness/readiness endpoints.
+- A responsive Next.js chat interface with loading, error, copy, and new-chat
+  states.
 
-### 📄 **1. Intelligent Document Processing**
-- Loads PDF constitutions (currently: Constitution of Nepal)
-- Extracts 240 pages → 1,719 semantic chunks
-- Preserves hierarchical structure with rich metadata
+## How it works
 
-### ✂️ **2. Advanced Hierarchical Chunking**
-**Not just character splitting** - our system:
-- ✅ Detects Part, Article, Sub-article, Clause boundaries
-- ✅ Adds contextual prefixes for better semantic matching
-- ✅ Keeps complete sub-articles together (no mid-sentence splits)
-- ✅ Stores metadata: `part`, `article`, `subarticle`, `clause`, `hierarchy`
-
-**Example chunk metadata:**
-```json
-{
-  "part": "Part 7",
-  "part_name": "Federal Executive",
-  "article": "Article 76",
-  "article_title": "Constitution of Council of Ministers",
-  "subarticle": "Sub-article (1)",
-  "hierarchy": "Part 7 → Article 76 → Sub-article (1)"
-}
+```text
+User
+  │
+  ▼
+Next.js chat interface
+  │  POST /api/chat
+  ▼
+FastAPI service
+  │
+  ├── classify and sanitize the question
+  ├── retrieve evidence from Chroma Cloud
+  ├── combine semantic, lexical, and citation matches
+  ├── generate a structured answer with GPT-4o
+  └── validate grounding and citations
+  │
+  ▼
+Evidence-backed constitutional answer
 ```
 
-### 🔍 **3. Smart Query Processing**
-**Query Expansion** - Automatically generates variations:
-- "How is the PM **elected**?" → "appointed", "selected", "chosen"
-- "What are citizen **rights**?" → "freedoms", "liberties", "entitlements"
-- Topic-specific boosters (e.g., PM queries → "Article 76")
+## Technology stack
 
-**Article Completion** - Ensures comprehensive answers:
-- Detects relevant articles in initial retrieval
-- Fetches ALL sub-articles from those articles
-- Provides complete constitutional coverage
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| API | FastAPI, Uvicorn, Pydantic |
+| RAG orchestration | LangChain |
+| Vector search | Chroma Cloud |
+| Embeddings | OpenAI `text-embedding-3-small` |
+| Answer generation | OpenAI `gpt-4o` |
+| Source document | Constitution of Nepal (English PDF) |
 
-### 🧠 **4. Structured Response Generation**
-Responses follow constitutional hierarchy:
+## Run it locally
 
-```
-📘 Part 7 – Federal Executive
-Article 76 – Constitution of Council of Ministers
+### Prerequisites
 
-🔹 Sub-article (1)
-As per Part 7, Article 76, Sub-article (1):
-• The President shall appoint the leader of a parliamentary party 
-  that commands majority in the House of Representatives as the 
-  Prime Minister...
+Install these before starting:
 
-🔹 Sub-article (2)
-As per Part 7, Article 76, Sub-article (2):
-• If no party has a clear majority...
-```
+- Git
+- Python 3.11 or newer
+- Node.js 20 or newer with npm
+- An OpenAI API key
+- A Chroma Cloud account
+- A PostgreSQL connection URL required by the current API runtime
 
----
+### 1. Clone the repository
 
-## 📊 System Performance
-
-| Metric | Value |
-|--------|-------|
-| **Total Chunks** | 1,719 semantic chunks |
-| **Chunk Quality** | Context-aware with metadata |
-| **Query Expansion** | 5-10x variations per query |
-| **Retrieval Accuracy** | ~90% for tested queries |
-| **Response Format** | Hierarchical with citations |
-
-### ✅ Tested Query Types:
-- ✅ Prime Minister election process
-- ✅ Fundamental rights of citizens
-- ✅ Duties of citizens
-- ✅ President election procedure
-- ✅ Parliament structure
-- ✅ Freedom of speech provisions
-
----
-
-## ⚙️ Installation & Setup
-
-### 1. Clone Repository
 ```bash
 git clone https://github.com/subigya-js/constitution-gpt.git
 cd constitution-gpt
 ```
 
-### 2. Create Virtual Environment
+All commands below assume that your terminal is in the repository root unless
+the step explicitly says otherwise.
+
+### 2. Create the Python environment
+
+macOS or Linux:
+
 ```bash
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
 ```
 
-### 3. Install Dependencies
+Windows PowerShell:
+
+```powershell
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Using `python -m pip` ensures packages are installed into the same Python
+interpreter that runs the API.
+
+### 3. Configure the backend
+
+Copy the example file:
+
 ```bash
-pip install -r requirements.txt
+cp .env.example .env
 ```
 
-### 4. Set Environment Variables
-Create `.env` file in the root directory:
-```env
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_REQUEST_TIMEOUT_SECONDS=45
-OPENAI_MAX_RETRIES=2
+On Windows PowerShell:
 
+```powershell
+Copy-Item .env.example .env
+```
+
+Open `.env` and replace every placeholder in the required section:
+
+```env
+# OpenAI creates embeddings and generates the final answer.
+OPENAI_API_KEY=your_openai_api_key
+
+# Only these browser origins may call the API.
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
-# Server-side PostgreSQL connection. Use Render's internal URL in production
-# and its external URL when running the API locally.
-DATABASE_URL=postgresql://user:password@host:5432/database
-DB_POOL_MIN_SIZE=1
-DB_POOL_MAX_SIZE=5
-DB_POOL_TIMEOUT_SECONDS=10
-DB_HEALTH_TIMEOUT_SECONDS=5
-
-MAX_CONCURRENT_RAG_REQUESTS=3
-RAG_QUEUE_TIMEOUT_SECONDS=1
-RAG_REQUEST_TIMEOUT_SECONDS=90
-CHROMA_HEALTH_TIMEOUT_SECONDS=5
-
-CHROMA_API_KEY=your_chroma_api_key_here
-CHROMA_TENANT=your_chroma_tenant_here
-CHROMA_DATABASE=your_chroma_database_here
+# Chroma Cloud stores and searches the indexed Constitution.
+CHROMA_API_KEY=your_chroma_cloud_api_key
+CHROMA_TENANT=your_chroma_tenant
+CHROMA_DATABASE=your_chroma_database
 CHROMA_COLLECTION=constitution_english
+
+# PostgreSQL connection used by the current API runtime.
+DATABASE_URL=postgresql://username:password@host:5432/database
 ```
 
-For production, replace the local origins with the exact Vercel and custom-domain
-origins that may call the API. Separate multiple origins with commas and do not
-include URL paths or trailing slashes.
+What each required variable means:
 
-Copy [`.env.example`](.env.example) to `.env` for local development. Configure
-the same names in Render's environment settings for production; never commit
-the real secret values.
+| Variable | Meaning |
+|---|---|
+| `OPENAI_API_KEY` | Secret key used by the backend for embeddings and answers |
+| `FRONTEND_ORIGINS` | Comma-separated frontend origins allowed by browser CORS |
+| `CHROMA_API_KEY` | Secret key from the Chroma Cloud dashboard |
+| `CHROMA_TENANT` | Tenant identifier shown in Chroma Cloud |
+| `CHROMA_DATABASE` | Chroma database containing the collection |
+| `CHROMA_COLLECTION` | Collection name; defaults to `constitution_english` |
+| `DATABASE_URL` | A PostgreSQL URL reachable from the machine running the API |
 
-#### Runtime protection variables
+Do not commit `.env`. Never put OpenAI, Chroma, or PostgreSQL secrets in a
+variable beginning with `NEXT_PUBLIC_`; those variables are exposed to the
+browser.
 
-| Variable | Required | Default | Purpose |
-|---|---:|---:|---|
-| `OPENAI_API_KEY` | Yes | — | Server-side OpenAI credential |
-| `OPENAI_REQUEST_TIMEOUT_SECONDS` | No | `45` | Deadline for each OpenAI SDK operation |
-| `OPENAI_MAX_RETRIES` | No | `2` | SDK retries for transient OpenAI failures; `0` disables retries |
-| `FRONTEND_ORIGINS` | Yes | — | Comma-separated browser origin allowlist |
-| `DATABASE_URL` | Yes | — | Server-side PostgreSQL connection URL; never expose it with a `NEXT_PUBLIC_` prefix |
-| `DB_POOL_MIN_SIZE` | No | `1` | Connections kept ready by each API process |
-| `DB_POOL_MAX_SIZE` | No | `5` | Maximum PostgreSQL connections used by each API process |
-| `DB_POOL_TIMEOUT_SECONDS` | No | `10` | Maximum wait for an available database connection |
-| `DB_HEALTH_TIMEOUT_SECONDS` | No | `5` | Maximum readiness-probe wait for PostgreSQL |
-| `MAX_CONCURRENT_RAG_REQUESTS` | No | `3` | Maximum RAG jobs executing in each API process |
-| `RAG_QUEUE_TIMEOUT_SECONDS` | No | `1` | Time to wait for an execution slot before returning `429` |
-| `RAG_REQUEST_TIMEOUT_SECONDS` | No | `90` | Client-facing deadline for the complete RAG pipeline |
-| `CHROMA_HEALTH_TIMEOUT_SECONDS` | No | `5` | Maximum readiness-probe wait for Chroma |
-| `CHROMA_API_KEY` | Production | — | Chroma Cloud credential |
-| `CHROMA_TENANT` | Production | — | Chroma Cloud tenant identifier |
-| `CHROMA_DATABASE` | Production | — | Chroma Cloud database name |
-| `CHROMA_COLLECTION` | No | `constitution_english` in cloud | Active collection name; use versioned names for safe releases |
-| `CHROMA_HOST` | No | Chroma Cloud default | Custom Chroma host override |
+The remaining values in `.env.example` are optional operational controls. Their
+defaults are suitable for local development:
 
-The API returns `429` when no RAG execution slot becomes available and `504`
-when the overall RAG deadline expires. Timed-out Python worker threads cannot be
-killed safely, so their concurrency slots remain occupied until the underlying
-provider call finishes.
+| Variable | Default | Purpose |
+|---|---:|---|
+| `OPENAI_REQUEST_TIMEOUT_SECONDS` | `45` | Timeout for an OpenAI SDK operation |
+| `OPENAI_MAX_RETRIES` | `2` | Retry count for transient OpenAI failures |
+| `MAX_CONCURRENT_RAG_REQUESTS` | `3` | Maximum RAG jobs per API process |
+| `RAG_QUEUE_TIMEOUT_SECONDS` | `1` | Maximum wait for an available execution slot |
+| `RAG_REQUEST_TIMEOUT_SECONDS` | `90` | Deadline for a complete chat request |
+| `CHROMA_HEALTH_TIMEOUT_SECONDS` | `5` | Chroma readiness-check timeout |
+| `CHROMA_HOST` | Chroma default | Optional custom Chroma Cloud host |
 
-For the initial Render deployment, use one Uvicorn worker. The concurrency limit
-is per process; increasing the worker count multiplies both concurrency and the
-in-memory retrieval index. Start with:
+### 4. Index the Constitution
 
-```bash
-uvicorn api.main:app --host 0.0.0.0 --port "$PORT" --workers 1 --proxy-headers
-```
+The source PDF is located at `rag/data/Constitution_English.pdf`. Upload its
+hierarchy-aware chunks to your configured Chroma Cloud collection:
 
-Set Render's health-check path to `/health/ready`. Use `/health/live` only to
-check whether the Python process itself is responsive.
-
-#### Chat response storage
-
-The API creates a `chatbot_interactions` table when it starts and stores each
-successfully generated question/answer pair before returning it to the client.
-If storage fails, the endpoint returns a generic `500` instead of silently
-returning an untracked answer.
-
-On Render, add `DATABASE_URL` to the API service and set its value from the
-PostgreSQL database's internal connection URL. Keep the external connection URL
-only in your local `.env`. The legacy `INTERNAL_DB_URL`, `EXTERNAL_DB_URL`, and
-`EXTERNAL_DB` names are accepted as fallbacks.
-
-Inspect recent responses with `psql`:
-
-```sql
-SELECT request_id, question, answer, created_at
-FROM chatbot_interactions
-ORDER BY created_at DESC
-LIMIT 50;
-```
-
-### 5. Build Vector Database
-```bash
-python rag/ingestion_pipeline.py
-```
-This will:
-- Load the Constitution PDF
-- Create 1,719 semantic chunks with metadata
-- Generate embeddings using OpenAI
-- Store in the configured Chroma Cloud collection
-
----
-
-## 🎮 Usage
-
-### Command Line Interface
-
-**Ask any constitutional question:**
-```bash
-python rag/retrieval_pipeline.py "How is the Prime Minister elected in Nepal?"
-```
-
-**Other example queries:**
-```bash
-python rag/retrieval_pipeline.py "What are the fundamental rights of citizens?"
-python rag/retrieval_pipeline.py "What are the duties of citizens?"
-python rag/retrieval_pipeline.py "How is the President elected?"
-python rag/retrieval_pipeline.py "What is the structure of the Federal Parliament?"
-```
-
-### Test Multiple Queries
-```bash
-python rag/test_various_queries.py
-```
-
-### Prompt-injection security
-
-The RAG request path treats user input, retrieved documents, and model output as
-separate untrusted boundaries:
-
-1. Input is Unicode-normalized, risk-scored, and logged by fingerprint rather
-   than raw text.
-2. A constrained router extracts a clean constitutional information need. The
-   original user message is never sent to retrieval or answer generation.
-3. Retrieved chunks containing high-confidence instruction-injection signals
-   are excluded before context construction.
-4. The answer uses a strict schema and has no tool or credential access.
-5. A per-request integrity canary, deterministic citation validation, and a
-   separate groundedness/security verification pass fail closed before output.
-6. API failures are logged server-side and return no provider or internal error
-   details to the client.
-
-Run the deterministic adversarial regression suite with:
-
-```bash
-python -m unittest rag.test_prompt_security
-```
-
-No LLM defense guarantees that every novel prompt injection will be detected.
-Do not place secrets in prompts or give this model privileged tools. Production
-deployment should additionally provide gateway-level authentication or rate
-limits, request budgets, alerting, dependency timeouts, and periodic red-team
-evaluation using real model calls.
-
-### Rebuild the Cloud Collection (if needed)
 ```bash
 python rag/ingestion_pipeline.py
 ```
 
----
+This step calls the OpenAI embeddings API and can incur usage charges. Run it
+once for a new collection, and run it again only when the source document or
+chunking logic changes. Stable chunk IDs make repeated uploads idempotent.
 
-## 🏗️ Project Structure
+### 5. Configure the frontend
 
+```bash
+cd web
+cp .env.example .env.local
+npm install
 ```
+
+The local frontend environment should contain:
+
+```env
+# Public origin of the FastAPI service. Do not append /api/chat.
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+This value is safe to expose because it is only an API address, not a secret.
+
+### 6. Start both applications
+
+Open two terminals.
+
+Terminal 1 — backend, from the repository root:
+
+```bash
+source venv/bin/activate
+python -m uvicorn api.main:app --reload --port 8000
+```
+
+Terminal 2 — frontend:
+
+```bash
+cd web
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) and ask a constitutional
+question.
+
+## Verify the setup
+
+Check that the API process is running:
+
+```bash
+curl http://localhost:8000/health/live
+```
+
+Check that required external dependencies are reachable:
+
+```bash
+curl http://localhost:8000/health/ready
+```
+
+A ready response looks like:
+
+```json
+{
+  "status": "ready",
+  "service": "Constitution GPT API",
+  "dependencies": {
+    "chroma": "ok",
+    "postgres": "ok"
+  }
+}
+```
+
+You can also open [http://localhost:8000/docs](http://localhost:8000/docs) to
+try the API through FastAPI's interactive documentation.
+
+## API
+
+### `POST /api/chat`
+
+Request:
+
+```json
+{
+  "question": "How is the Prime Minister appointed in Nepal?"
+}
+```
+
+Response:
+
+```json
+{
+  "question": "How is the Prime Minister appointed in Nepal?",
+  "answer": "The President appoints the Prime Minister under Article 76..."
+}
+```
+
+Other endpoints:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /` | API information |
+| `GET /health/live` | Confirms that the API process is alive |
+| `GET /health/ready` | Checks dependencies required to serve chat requests |
+| `GET /docs` | Interactive OpenAPI documentation |
+
+## Project structure
+
+```text
 constitution-gpt/
+├── api/
+│   ├── main.py                 # FastAPI routes and application lifecycle
+│   └── execution_limits.py     # Concurrency and timeout protection
 ├── rag/
-│   ├── data/
-│   │   └── Constitution_English.pdf    # Source document
-│   ├── ingestion_pipeline.py           # Chunking + Vector DB creation
-│   ├── retrieval_pipeline.py           # Query processing + Answer generation
-│   └── test_various_queries.py         # Test suite
-├── venv/                               # Virtual environment
-├── .env                                # Environment variables
-├── requirements.txt                    # Python dependencies
-└── README.md                           # This file
+│   ├── data/                   # Source Constitution PDF
+│   ├── ingestion_pipeline.py   # PDF parsing, chunking, and indexing
+│   ├── hybrid_retrieval.py     # Semantic, lexical, and citation retrieval
+│   ├── prompt_security.py      # Input, context, and output safeguards
+│   └── retrieval_pipeline.py   # Routing, generation, and verification
+├── web/
+│   ├── app/                    # Next.js application and chat interface
+│   └── package.json
+├── .env.example                # Backend environment template
+├── requirements.txt            # Python dependencies
+└── README.md
 ```
 
----
+## Testing
 
-## 🔧 Technical Architecture
+Run the deterministic backend and RAG tests from the repository root:
 
-### Ingestion Pipeline (`ingestion_pipeline.py`)
-1. **Load PDF** → PyMuPDFLoader extracts text
-2. **Parse Hierarchy** → Regex-based extraction of Parts/Articles/Sub-articles
-3. **Create Chunks** → Semantic chunks with contextual prefixes
-4. **Add Metadata** → Rich metadata for each chunk
-5. **Generate Embeddings** → OpenAI `text-embedding-3-small`
-6. **Store in ChromaDB** → Persistent vector database
-
-### Retrieval Pipeline (`retrieval_pipeline.py`)
-1. **Query Expansion** → Generate 5-10 variations with synonyms
-2. **Multi-Query Retrieval** → Search for each variation
-3. **Deduplication** → Remove duplicate chunks
-4. **Article Completion** → Fetch all sub-articles from key articles
-5. **Relevance Scoring** → Prioritize by query term matches
-6. **Context Creation** → Group and structure by hierarchy
-7. **LLM Generation** → GPT-4o generates structured answer
-
----
-
-## 📝 Example Output
-
-**Query:** "How is the Prime Minister elected in Nepal?"
-
-**Response:**
-```
-📘 Part 7 – Federal Executive | Article 76 – Constitution of Council of Ministers
-
-🔹 Sub-article (1)
-As per Part 7, Article 76, Sub-article (1):
-• The President shall appoint the leader of a parliamentary party that 
-  commands a majority in the House of Representatives as the Prime Minister, 
-  and the Council of Ministers shall be constituted under his or her 
-  chairpersonship.
-
-🔹 Sub-article (2)
-As per Part 7, Article 76, Sub-article (2):
-• If no party has a clear majority, the President shall appoint as Prime 
-  Minister a member of the House of Representatives who presents a ground 
-  on which he or she can obtain a vote of confidence in the House of 
-  Representatives.
-
-🔹 Sub-article (4)
-As per Part 7, Article 76, Sub-article (4):
-• If a Prime Minister cannot be appointed under Sub-article (1) or (2), 
-  the President shall appoint as the Prime Minister the parliamentary party 
-  leader of the party which has the highest number of members in the House 
-  of Representatives.
+```bash
+python -m unittest \
+  api.test_chat_repository \
+  api.test_chat_persistence \
+  api.test_execution_limits \
+  rag.test_answer_formatting \
+  rag.test_chroma_connection \
+  rag.test_hybrid_retrieval \
+  rag.test_prompt_security
 ```
 
----
+Build and type-check the frontend:
 
-## 🎯 Use Cases
+```bash
+cd web
+npm run build
+```
 
-### 🧑‍🎓 **For Students**
-- Learn constitutional law with structured explanations
-- Get complete article breakdowns with all sub-articles
-- Understand hierarchical relationships between provisions
+The prompt-security tests are deterministic regression checks. No prompt
+defense guarantees protection from every future attack, so avoid placing
+secrets in prompts or granting the answer-generation model privileged tools.
 
-### ⚖️ **For Lawyers & Legal Researchers**
-- Quick retrieval of relevant constitutional provisions
-- Complete article coverage (no missing sub-articles)
-- Accurate Part/Article/Sub-article citations
+## Troubleshooting
 
-### 🏛️ **For Government & NGOs**
-- Build civic education platforms
-- Provide constitution Q&A to citizens
-- Policy analysis and research automation
+### `ModuleNotFoundError`
 
-### 🛠️ **For Developers**
-- Backend for AI-powered legal tools
-- Vector-search microservice for legal documents
-- Domain-specific chatbot template
+The dependency was probably installed into a different Python interpreter:
 
----
+```bash
+source venv/bin/activate
+python -m pip install -r requirements.txt
+python -c "import sys; print(sys.executable)"
+```
 
-## 🛣️ Roadmap
+### The frontend reports that it cannot reach the API
 
-- [x] Hierarchical chunking with metadata
-- [x] Smart query expansion
-- [x] Article completion for comprehensive answers
-- [x] Structured response generation
-- [ ] FastAPI backend with REST endpoints
-- [ ] Web UI for interactive Q&A
-- [ ] Support for multiple constitutions
-- [ ] Multilingual support (Nepali, Hindi, etc.)
-- [ ] Cross-article relationship graph
-- [ ] Dockerized deployment
-- [ ] Cloud-ready architecture
+Confirm all three items:
 
----
+1. FastAPI is running on `http://localhost:8000`.
+2. `web/.env.local` contains `NEXT_PUBLIC_API_URL=http://localhost:8000`.
+3. You restarted Next.js after changing `web/.env.local`.
 
-## 🤝 Contributing
+### Browser CORS error
 
-Contributions are welcome! Here's how you can help:
+Add the exact frontend origin to `FRONTEND_ORIGINS`, without URL paths or a
+trailing slash, and restart FastAPI.
 
-1. **Report Issues**: Found a bug or incorrect retrieval? Open an issue
-2. **Suggest Features**: Have ideas for improvements? Let us know
-3. **Submit PRs**: Code contributions are appreciated
-4. **Add Documents**: Help add more constitutions or legal documents
+### `/health/ready` returns `503`
 
----
+At least one required dependency is unavailable. Inspect the backend terminal
+for the server-side error, then verify your Chroma and PostgreSQL configuration.
+The endpoint intentionally does not expose credentials or internal error
+details to browsers.
 
-## 📜 License
+## Roadmap
 
-MIT License - feel free to use this project for educational, research, or commercial purposes.
+- [x] Hierarchical constitutional document ingestion
+- [x] Hybrid semantic and lexical retrieval
+- [x] Exact Article/Sub-article lookup
+- [x] Structured, citation-validated answers
+- [x] Prompt-injection regression suite
+- [x] FastAPI service and Next.js chat interface
+- [x] Cloud deployment
+- [ ] Nepali-language Constitution and answers
+- [ ] Support for additional constitutions and legal documents
+- [ ] Authentication and personal conversation history
+- [ ] Automated retrieval-quality evaluation in CI
+- [ ] Accessibility and end-to-end browser testing
 
----
+## Contributing
 
-## 🙌 Acknowledgements
+Issues and pull requests are welcome. For substantial changes, open an issue
+first so the implementation approach and test coverage can be discussed.
 
-- **Constitution of Nepal** - Source document
-- **OpenAI** - Embeddings and LLM
-- **LangChain** - RAG framework
-- **ChromaDB** - Vector database
+When contributing:
 
-Built to make constitutional knowledge **accessible, accurate, and AI-powered** 🚀
+1. Create a focused branch.
+2. Add or update tests with the change.
+3. Run the backend tests and frontend build.
+4. Submit a pull request explaining the problem, solution, and tradeoffs.
+
+## Acknowledgements
+
+- [The Constitution of Nepal](https://ag.gov.np/files/Constitution-of-Nepal_2072_Eng_www.moljpa.gov_.npDate-72_11_16.pdf)
+- [OpenAI](https://openai.com/)
+- [Chroma](https://www.trychroma.com/)
+- The open-source LangChain, FastAPI, Next.js, and React communities
