@@ -29,6 +29,15 @@ A beautiful, modern chat interface for Constitution GPT built with Next.js 16, R
    ```
 
 2. **Start the development server**:
+
+   Copy the frontend environment example first:
+
+   ```bash
+   cp .env.example .env.local
+   ```
+
+   Then start Next.js:
+
    ```bash
    npm run dev
    ```
@@ -36,7 +45,8 @@ A beautiful, modern chat interface for Constitution GPT built with Next.js 16, R
 3. **Open your browser**:
    Navigate to [http://localhost:3000](http://localhost:3000)
 
-The chat interface should now be running! 🎉
+The chat interface should now be running and sending chat requests to the
+FastAPI server at `http://localhost:8000`.
 
 ### Build for Production
 

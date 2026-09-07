@@ -1,4 +1,6 @@
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.responses import JSONResponse
@@ -19,6 +21,7 @@ sys.path.append(PROJECT_ROOT)
 
 from rag.retrieval_pipeline import retrieve_and_answer
 from rag.chroma_connection import create_chroma_client
+from api.chat_repository import ChatRepository
 from api.execution_limits import (
     CapacityExceededError,
     RagExecutionTimeoutError,
@@ -27,6 +30,18 @@ from api.execution_limits import (
 )
 
 logger = logging.getLogger("constitution_gpt.api")
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Initialize server-side dependencies once per API process."""
+    chat_repository = ChatRepository()
+    await chat_repository.start()
+    application.state.chat_repository = chat_repository
+    try:
+        yield
+    finally:
+        await chat_repository.close()
 
 
 def get_frontend_origins() -> list[str]:
@@ -67,7 +82,8 @@ def get_frontend_origins() -> list[str]:
 app = FastAPI(
     title="Constitution GPT API",
     description="AI-Powered Constitutional Intelligence API for Nepal's Constitution",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Only browser origins explicitly configured for this environment may call the API.
@@ -131,12 +147,18 @@ async def liveness():
 
 @app.get("/health")
 @app.get("/health/ready")
-async def readiness():
+async def readiness(request: Request):
     """Confirm that dependencies required by chat requests are available."""
     try:
-        await asyncio.wait_for(
-            run_in_threadpool(lambda: create_chroma_client().heartbeat()),
-            timeout=positive_number("CHROMA_HEALTH_TIMEOUT_SECONDS", 5),
+        await asyncio.gather(
+            asyncio.wait_for(
+                run_in_threadpool(lambda: create_chroma_client().heartbeat()),
+                timeout=positive_number("CHROMA_HEALTH_TIMEOUT_SECONDS", 5),
+            ),
+            asyncio.wait_for(
+                request.app.state.chat_repository.check_connection(),
+                timeout=positive_number("DB_HEALTH_TIMEOUT_SECONDS", 5),
+            ),
         )
     except Exception:
         logger.exception("Readiness check failed")
@@ -148,12 +170,12 @@ async def readiness():
     return {
         "status": "ready",
         "service": "Constitution GPT API",
-        "dependencies": {"chroma": "ok"},
+        "dependencies": {"chroma": "ok", "postgres": "ok"},
     }
 
 
 @app.post("/api/chat", response_model=QueryResponse)
-async def chat(request: QueryRequest):
+async def chat(request: QueryRequest, http_request: Request):
     """
     Query the Constitution of Nepal using RAG.
     
@@ -187,6 +209,11 @@ async def chat(request: QueryRequest):
                 detail="The request exceeded its processing deadline.",
             )
         
+        await http_request.app.state.chat_repository.save_interaction(
+            request.question,
+            answer,
+        )
+
         return QueryResponse(
             question=request.question,
             answer=answer

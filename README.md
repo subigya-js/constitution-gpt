@@ -132,6 +132,14 @@ OPENAI_MAX_RETRIES=2
 
 FRONTEND_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
 
+# Server-side PostgreSQL connection. Use Render's internal URL in production
+# and its external URL when running the API locally.
+DATABASE_URL=postgresql://user:password@host:5432/database
+DB_POOL_MIN_SIZE=1
+DB_POOL_MAX_SIZE=5
+DB_POOL_TIMEOUT_SECONDS=10
+DB_HEALTH_TIMEOUT_SECONDS=5
+
 MAX_CONCURRENT_RAG_REQUESTS=3
 RAG_QUEUE_TIMEOUT_SECONDS=1
 RAG_REQUEST_TIMEOUT_SECONDS=90
@@ -159,6 +167,11 @@ the real secret values.
 | `OPENAI_REQUEST_TIMEOUT_SECONDS` | No | `45` | Deadline for each OpenAI SDK operation |
 | `OPENAI_MAX_RETRIES` | No | `2` | SDK retries for transient OpenAI failures; `0` disables retries |
 | `FRONTEND_ORIGINS` | Yes | — | Comma-separated browser origin allowlist |
+| `DATABASE_URL` | Yes | — | Server-side PostgreSQL connection URL; never expose it with a `NEXT_PUBLIC_` prefix |
+| `DB_POOL_MIN_SIZE` | No | `1` | Connections kept ready by each API process |
+| `DB_POOL_MAX_SIZE` | No | `5` | Maximum PostgreSQL connections used by each API process |
+| `DB_POOL_TIMEOUT_SECONDS` | No | `10` | Maximum wait for an available database connection |
+| `DB_HEALTH_TIMEOUT_SECONDS` | No | `5` | Maximum readiness-probe wait for PostgreSQL |
 | `MAX_CONCURRENT_RAG_REQUESTS` | No | `3` | Maximum RAG jobs executing in each API process |
 | `RAG_QUEUE_TIMEOUT_SECONDS` | No | `1` | Time to wait for an execution slot before returning `429` |
 | `RAG_REQUEST_TIMEOUT_SECONDS` | No | `90` | Client-facing deadline for the complete RAG pipeline |
@@ -184,6 +197,27 @@ uvicorn api.main:app --host 0.0.0.0 --port "$PORT" --workers 1 --proxy-headers
 
 Set Render's health-check path to `/health/ready`. Use `/health/live` only to
 check whether the Python process itself is responsive.
+
+#### Chat response storage
+
+The API creates a `chatbot_interactions` table when it starts and stores each
+successfully generated question/answer pair before returning it to the client.
+If storage fails, the endpoint returns a generic `500` instead of silently
+returning an untracked answer.
+
+On Render, add `DATABASE_URL` to the API service and set its value from the
+PostgreSQL database's internal connection URL. Keep the external connection URL
+only in your local `.env`. The legacy `INTERNAL_DB_URL`, `EXTERNAL_DB_URL`, and
+`EXTERNAL_DB` names are accepted as fallbacks.
+
+Inspect recent responses with `psql`:
+
+```sql
+SELECT request_id, question, answer, created_at
+FROM chatbot_interactions
+ORDER BY created_at DESC
+LIMIT 50;
+```
 
 ### 5. Build Vector Database
 ```bash

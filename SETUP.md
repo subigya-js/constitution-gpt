@@ -76,6 +76,7 @@ The API will be available at:
 ```bash
 # From project root
 cd web
+cp .env.example .env.local
 npm run dev
 ```
 
