@@ -3,12 +3,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, StreamingResponse
 from starlette.concurrency import run_in_threadpool
+import json
 import logging
+import queue as stdlib_queue
 import sys
 import os
 import asyncio
+from typing import AsyncGenerator
 from urllib.parse import urlsplit
 from uuid import UUID
 from typing import Literal
@@ -21,7 +24,7 @@ load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 # Add parent directory to path to import rag module
 sys.path.append(PROJECT_ROOT)
 
-from rag.research_assistant import ResearchMode, answer_research_question
+from rag.research_assistant import AssistantResult, ResearchMode, answer_research_question
 from rag.chroma_connection import create_chroma_client
 from api.chat_repository import ChatRepository
 from api.execution_limits import (
@@ -263,6 +266,116 @@ async def chat(request: QueryRequest, http_request: Request):
             status_code=500,
             detail="Unable to process the question at this time."
         )
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: QueryRequest, http_request: Request):
+    """
+    Same as /api/chat but streams real-time progress events over Server-Sent Events
+    before delivering the final result.
+
+    Each SSE event is a JSON object on a ``data:`` line:
+    - ``{"type": "status", "step": "<key>", "label": "<human text>"}``
+    - ``{"type": "result", "answer": "...", "sources": [...], ...}``
+    - ``{"type": "error", "detail": "..."}``
+    """
+    try:
+        if not request.question or not request.question.strip():
+            raise HTTPException(status_code=400, detail="Question cannot be empty")
+
+        conversation_id = await http_request.app.state.chat_repository.ensure_conversation(
+            request.conversation_id
+        )
+        history = await http_request.app.state.chat_repository.get_recent_messages(
+            conversation_id
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Chat stream setup failed")
+        raise HTTPException(status_code=500, detail="Unable to process the question at this time.")
+
+    # SimpleQueue is thread-safe and requires no event loop — safe to write from
+    # the threadpool worker and read from the async generator.
+    progress_queue: stdlib_queue.SimpleQueue[dict] = stdlib_queue.SimpleQueue()
+    _DONE = object()  # sentinel to signal the worker finished
+
+    def on_progress(step: str, label: str) -> None:
+        progress_queue.put({"type": "status", "step": step, "label": label})
+
+    async def event_stream() -> AsyncGenerator[str, None]:
+        def _sse(payload: dict) -> str:
+            return f"data: {json.dumps(payload)}\n\n"
+
+        try:
+            task = asyncio.create_task(
+                get_rag_execution_limiter().run(
+                    answer_research_question,
+                    request.question,
+                    history,
+                    False,
+                    on_progress,
+                )
+            )
+
+            # Drain progress events while the task is running.
+            while not task.done():
+                while not progress_queue.empty():
+                    yield _sse(progress_queue.get_nowait())
+                await asyncio.sleep(0.05)
+
+            # Flush any events that arrived in the final slice.
+            while not progress_queue.empty():
+                yield _sse(progress_queue.get_nowait())
+
+            result: AssistantResult = await task
+
+        except CapacityExceededError:
+            yield _sse({"type": "error", "detail": "The service is at capacity. Please try again shortly."})
+            return
+        except RagExecutionTimeoutError:
+            yield _sse({"type": "error", "detail": "The request exceeded its processing deadline."})
+            return
+        except asyncio.CancelledError:
+            return
+        except Exception:
+            logger.exception("Chat stream research failed")
+            yield _sse({"type": "error", "detail": "Unable to process the question at this time."})
+            return
+
+        try:
+            serialized_sources = [source.model_dump() for source in result.sources]
+            await http_request.app.state.chat_repository.save_interaction(
+                request.question,
+                result.answer,
+                conversation_id=conversation_id,
+                resolved_question=result.resolved_question,
+                mode=result.mode,
+                sources=serialized_sources,
+            )
+        except Exception:
+            logger.exception("Chat stream persistence failed")
+            # Non-fatal: still return the answer to the client.
+
+        yield _sse({
+            "type": "result",
+            "answer": result.answer,
+            "conversation_id": str(conversation_id),
+            "mode": result.mode,
+            "sources": [
+                {"title": s.title, "url": s.url, "source_type": s.source_type}
+                for s in result.sources
+            ],
+        })
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # Disable nginx buffering for SSE
+        },
+    )
 
 
 if __name__ == "__main__":

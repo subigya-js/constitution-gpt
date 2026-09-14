@@ -15,7 +15,7 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import lru_cache
-from typing import Literal, Sequence
+from typing import Callable, Literal, Sequence
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -304,12 +304,30 @@ _RESEARCH_UNAVAILABLE = (
 )
 
 
+def _emit(callback: Callable[[str, str], None] | None, step: str, label: str) -> None:
+    """Fire the progress callback, swallowing any errors so they never kill the pipeline."""
+    if callback is not None:
+        try:
+            callback(step, label)
+        except Exception:
+            pass
+
+
 def answer_research_question(
     question: str,
     history: Sequence[dict[str, str]] | None = None,
     verbose: bool = False,
+    on_progress: Callable[[str, str], None] | None = None,
 ) -> AssistantResult:
-    """Answer through one deterministic route; no autonomous tool loop is used."""
+    """Answer through one deterministic route; no autonomous tool loop is used.
+
+    Args:
+        question: The user's question.
+        history: Prior conversation turns for context resolution.
+        verbose: Whether to enable verbose retrieval logging.
+        on_progress: Optional callback fired at each pipeline stage with
+            ``(step_key, human_label)`` so callers can stream progress to clients.
+    """
 
     if response := basic_conversation_response(question):
         return AssistantResult(
@@ -318,7 +336,10 @@ def answer_research_question(
             resolved_question=normalize_untrusted_text(question),
         )
 
+    _emit(on_progress, "resolving", "Resolving your question\u2026")
     resolved_question = resolve_question(question, history)
+
+    _emit(on_progress, "classifying", "Classifying query scope\u2026")
     scope = classify_query(resolved_question)
 
     if scope.category == "conversation":
@@ -329,6 +350,7 @@ def answer_research_question(
         )
 
     if scope.category in {"out_of_scope", "ambiguous"}:
+        _emit(on_progress, "retrieving", "Searching constitutional text\u2026")
         answer = retrieve_and_answer(
             resolved_question,
             verbose,
@@ -344,6 +366,7 @@ def answer_research_question(
     if scope.category in {"constitutional", "mixed"}:
         constitutional_query = normalize_untrusted_text(scope.constitutional_query)
         if constitutional_query:
+            _emit(on_progress, "retrieving", "Searching constitutional text\u2026")
             constitutional_answer = retrieve_and_answer(
                 constitutional_query,
                 verbose,
@@ -359,6 +382,7 @@ def answer_research_question(
                 mode="boundary",
                 resolved_question=resolved_question,
             )
+        _emit(on_progress, "researching", "Searching the web for legal sources\u2026")
         try:
             web_result = research_web(
                 research_query or resolved_question,
@@ -366,6 +390,8 @@ def answer_research_question(
             )
         except Exception:
             logger.exception("Bounded legal web research failed")
+
+    _emit(on_progress, "composing", "Composing the answer\u2026")
 
     if scope.category == "constitutional":
         return AssistantResult(

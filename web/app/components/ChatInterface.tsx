@@ -12,6 +12,8 @@ interface Message {
   content: string;
   status: MessageStatus;
   sources?: Source[];
+  statusStep?: string;
+  statusLabel?: string;
 }
 
 interface Source {
@@ -59,6 +61,34 @@ function AnswerContent({ content }: { content: string }) {
       >
         {stripInlineCitations(content)}
       </ReactMarkdown>
+    </div>
+  );
+}
+
+const STEP_META: Record<string, { color: string }> = {
+  resolving:   { color: '#7c9ef5' },
+  classifying: { color: '#a78bfa' },
+  retrieving:  { color: '#34d399' },
+  researching: { color: '#fb923c' },
+  composing:   { color: '#f472b6' },
+};
+
+function StatusIndicator({ step, label }: { step?: string; label?: string }) {
+  const meta = step ? STEP_META[step] : null;
+  const displayLabel = label ?? 'Thinking\u2026';
+  return (
+    <div className="status-indicator" role="status" aria-live="polite">
+      <div className="status-top-row">
+        <span
+          className="status-step-dot"
+          key={step ?? 'idle'}
+          style={meta ? { background: meta.color } : { background: '#555' }}
+        />
+        <span className="status-label-text" key={displayLabel}>{displayLabel}</span>
+      </div>
+      <div className="thinking">
+        <span /><span /><span />
+      </div>
     </div>
   );
 }
@@ -124,18 +154,50 @@ export default function ChatInterface() {
     setIsGenerating(true);
 
     try {
-      const response = await fetch(`${API_URL}/api/chat`, {
+      const response = await fetch(`${API_URL}/api/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question, conversation_id: conversationId }),
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+      if (!response.body) throw new Error('No response body from stream endpoint');
 
-      const data: { answer?: string; conversation_id?: string; sources?: Source[] } = await response.json();
-      if (!data.answer?.trim()) throw new Error('The API returned an empty answer');
-      if (data.conversation_id) conversationIdRef.current = data.conversation_id;
-      await revealResponse(responseId, data.answer, data.sources ?? [], controller.signal);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalAnswer: string | null = null;
+      let finalSources: Source[] = [];
+
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          let event: Record<string, unknown>;
+          try { event = JSON.parse(line.slice(6)); } catch { continue; }
+
+          if (event.type === 'status') {
+            updateAssistant(responseId, {
+              statusStep: event.step as string,
+              statusLabel: event.label as string,
+            });
+          } else if (event.type === 'result') {
+            if (event.conversation_id) conversationIdRef.current = event.conversation_id as string;
+            finalAnswer = event.answer as string;
+            finalSources = (event.sources ?? []) as Source[];
+            break outer;
+          } else if (event.type === 'error') {
+            throw new Error((event.detail as string) ?? 'Stream error');
+          }
+        }
+      }
+
+      if (!finalAnswer?.trim()) throw new Error('The API returned an empty answer');
+      await revealResponse(responseId, finalAnswer, finalSources, controller.signal);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setMessages((current) => current.flatMap((message) => {
@@ -205,7 +267,7 @@ export default function ChatInterface() {
                   <div className="message-body">
                     {message.role === 'user' ? <div className="user-bubble">{message.content}</div>
                       : message.status === 'waiting' ? (
-                        <div className="thinking" role="status"><span /><span /><span /><em>Researching legal sources</em></div>
+                        <StatusIndicator step={message.statusStep} label={message.statusLabel} />
                       ) : (
                         <>
                           <AnswerContent content={message.content} />

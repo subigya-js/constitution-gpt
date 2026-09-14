@@ -41,7 +41,7 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(255,255,2
 .message-row { display: flex; width: 100%; margin-bottom: 34px; animation: message-in 280ms ease both; }
 .message-row.user { justify-content: flex-end; }
 .message-row.assistant { align-items: flex-start; gap: 16px; }
-.user-bubble { max-width: min(78%, 560px); padding: 10px 17px; border-radius: 20px; background: var(--surface); color: #f0f0f0; font-size: 15px; line-height: 1.55; white-space: pre-wrap; }
+.user-bubble { max-width: min(78%, 560px); min-width: 90px; padding: 10px 16px; border: 1px solid rgba(255,255,255,.07); border-radius: 12px; background: #3c3c3c; color: #efefef; font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .message-body { min-width: 0; max-width: 680px; color: #dedede; font-size: 15px; line-height: 1.72; }
 /* ── Markdown typography (answer-content) ─────────────────────────── */
 .answer-content { font-size: 15px; line-height: 1.72; color: #dedede; }
@@ -134,7 +134,11 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(255,255,2
 .thinking span { width: 5px; height: 5px; border-radius: 50%; background: #aaa; animation: dot 1.2s infinite ease-in-out; }
 .thinking span:nth-child(2) { animation-delay: 120ms; }
 .thinking span:nth-child(3) { animation-delay: 240ms; }
-.thinking em { margin-left: 7px; color: #858585; font-size: 12px; font-style: normal; }
+.status-indicator { display: flex; flex-direction: column; gap: 7px; }
+.status-top-row { display: flex; align-items: center; gap: 10px; }
+.status-label-text { color: #c0c0c0; font-size: 13px; font-style: normal; font-weight: 400; animation: status-slide 260ms cubic-bezier(.2,.8,.2,1) both; }
+.status-step-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; animation: status-pop 300ms cubic-bezier(.34,1.56,.64,1) both; transition: background 200ms ease; }
+.status-label { animation: status-slide 260ms cubic-bezier(.2,.8,.2,1) both; }
 .message-actions { height: 28px; margin-top: 3px; }
 .message-actions button { padding: 5px 7px; border: 0; border-radius: 6px; background: transparent; color: #858585; font-size: 12px; cursor: pointer; }
 .message-actions button:hover { background: rgba(255,255,255,.06); color: #d0d0d0; }
@@ -163,6 +167,8 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(255,255,2
 @keyframes mark-in { from { opacity: 0; transform: scale(.82) rotate(-5deg); } to { opacity: 1; transform: none; } }
 @keyframes blink { 50% { opacity: 0; } }
 @keyframes dot { 0%, 60%, 100% { opacity: .3; transform: translateY(0); } 30% { opacity: 1; transform: translateY(-3px); } }
+@keyframes status-pop { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: scale(1); } }
+@keyframes status-slide { from { opacity: 0; transform: translateX(6px); } to { opacity: 1; transform: none; } }
 
 @media (max-width: 820px) {
   .topbar { padding: 0 10px; }
