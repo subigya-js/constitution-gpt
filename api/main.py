@@ -10,6 +10,8 @@ import sys
 import os
 import asyncio
 from urllib.parse import urlsplit
+from uuid import UUID
+from typing import Literal
 from dotenv import load_dotenv
 
 # Load environment variables from the project root first.
@@ -19,7 +21,7 @@ load_dotenv(os.path.join(PROJECT_ROOT, ".env"))
 # Add parent directory to path to import rag module
 sys.path.append(PROJECT_ROOT)
 
-from rag.retrieval_pipeline import retrieve_and_answer
+from rag.research_assistant import ResearchMode, answer_research_question
 from rag.chroma_connection import create_chroma_client
 from api.chat_repository import ChatRepository
 from api.execution_limits import (
@@ -81,8 +83,8 @@ def get_frontend_origins() -> list[str]:
 
 app = FastAPI(
     title="Constitution GPT API",
-    description="AI-Powered Constitutional Intelligence API for Nepal's Constitution",
-    version="1.0.0",
+    description="Source-grounded constitutional and Nepalese legal research API",
+    version="1.1.0",
     lifespan=lifespan,
 )
 
@@ -98,24 +100,40 @@ app.add_middleware(
 
 class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "question": "How is the Prime Minister elected in Nepal?"
-            }
-        }
-
-
-class QueryResponse(BaseModel):
-    question: str
-    answer: str
+    conversation_id: UUID | None = None
     
     class Config:
         json_schema_extra = {
             "example": {
                 "question": "How is the Prime Minister elected in Nepal?",
-                "answer": "📘 Part 7 – Federal Executive\nArticle 76 – Constitution of Council of Ministers..."
+                "conversation_id": "f8d53b9b-dbae-4477-b7a4-bf7c30c2b411",
+            }
+        }
+
+
+class SourceResponse(BaseModel):
+    title: str
+    url: str
+    source_type: Literal["web"]
+
+
+class QueryResponse(BaseModel):
+    question: str
+    answer: str
+    conversation_id: UUID
+    resolved_question: str
+    mode: ResearchMode
+    sources: list[SourceResponse]
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "question": "How is the Prime Minister elected in Nepal?",
+                "answer": "📘 Part 7 – Federal Executive\nArticle 76 – Constitution of Council of Ministers...",
+                "conversation_id": "f8d53b9b-dbae-4477-b7a4-bf7c30c2b411",
+                "resolved_question": "How is the Prime Minister elected in Nepal?",
+                "mode": "constitutional",
+                "sources": [],
             }
         }
 
@@ -125,12 +143,12 @@ async def root():
     """Root endpoint with API information."""
     return {
         "message": "Welcome to Constitution GPT API",
-        "version": "1.0.0",
+        "version": "1.1.0",
         "endpoints": {
             "/": "API information",
             "/health/live": "Liveness check",
             "/health/ready": "Dependency readiness check",
-            "/api/chat": "Query the Constitution (POST)",
+            "/api/chat": "Ask a constitutional or Nepalese legal research question (POST)",
             "/docs": "Interactive API documentation",
         }
     }
@@ -177,24 +195,31 @@ async def readiness(request: Request):
 @app.post("/api/chat", response_model=QueryResponse)
 async def chat(request: QueryRequest, http_request: Request):
     """
-    Query the Constitution of Nepal using RAG.
+    Ask a conversational or source-grounded Nepalese legal research question.
     
     - **question**: Your question about the Constitution of Nepal
     
-    Returns a structured answer with proper citations and hierarchical structure.
+    Returns the answer, conversation identity, research mode, and web sources.
     """
     try:
         if not request.question or not request.question.strip():
             raise HTTPException(status_code=400, detail="Question cannot be empty")
         
-        # Call the RAG pipeline (verbose=False to avoid console output)
-        # The RAG stack uses synchronous SDK clients. Running it in FastAPI's
+        conversation_id = await http_request.app.state.chat_repository.ensure_conversation(
+            request.conversation_id
+        )
+        history = await http_request.app.state.chat_repository.get_recent_messages(
+            conversation_id
+        )
+
+        # The research stack uses synchronous SDK clients. Running it in FastAPI's
         # worker pool prevents one slow model/database call from blocking the
         # event loop for every concurrent request.
         try:
-            answer = await get_rag_execution_limiter().run(
-                retrieve_and_answer,
+            result = await get_rag_execution_limiter().run(
+                answer_research_question,
                 request.question,
+                history,
                 False,
             )
         except CapacityExceededError:
@@ -209,14 +234,23 @@ async def chat(request: QueryRequest, http_request: Request):
                 detail="The request exceeded its processing deadline.",
             )
         
+        serialized_sources = [source.model_dump() for source in result.sources]
         await http_request.app.state.chat_repository.save_interaction(
             request.question,
-            answer,
+            result.answer,
+            conversation_id=conversation_id,
+            resolved_question=result.resolved_question,
+            mode=result.mode,
+            sources=serialized_sources,
         )
 
         return QueryResponse(
             question=request.question,
-            answer=answer
+            answer=result.answer,
+            conversation_id=conversation_id,
+            resolved_question=result.resolved_question,
+            mode=result.mode,
+            sources=[SourceResponse(**source) for source in serialized_sources],
         )
     
     except HTTPException:

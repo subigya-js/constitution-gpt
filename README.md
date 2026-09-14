@@ -1,7 +1,7 @@
 # Constitution GPT
 
-An open-source, retrieval-augmented chatbot for exploring the Constitution of
-Nepal through clear answers grounded in the constitutional text.
+An open-source legal research assistant for exploring Nepal's Constitution and
+related law through clear, source-grounded answers.
 
 [Live application](https://constitution.subigyasubedi.com.np) ·
 [API documentation](https://constitution-gpt-w91k.onrender.com/docs)
@@ -12,11 +12,15 @@ Constitution GPT is built for questions such as:
 - Which fundamental rights are guaranteed to citizens?
 - How is the Federal Parliament structured?
 - What constitutional duties do citizens have?
+- How can a person apply for Nepali citizenship under current law?
+- Does a parliamentary bill appear consistent with relevant constitutional provisions?
+- What did a Nepalese court decide about a constitutional issue?
 
-Instead of asking a language model to answer from memory, the application first
-retrieves relevant provisions from an indexed copy of the Constitution. It then
-generates a structured answer and checks that the cited Articles and
-Sub-articles exist in the retrieved evidence.
+Instead of asking a language model to answer from memory, the application routes
+each request through a bounded evidence pipeline. Constitutional questions use
+the indexed constitutional text. Related legal, judicial, parliamentary, and
+current-information questions use bounded web research with provider-returned
+source links. Mixed questions keep the two evidence types visibly separate.
 
 > Constitution GPT is an educational and research tool, not a substitute for
 > the official Constitution or professional legal advice.
@@ -30,6 +34,11 @@ Sub-articles exist in the retrieved evidence.
 - Reciprocal-rank fusion, deduplication, reranking, and parent-article expansion.
 - Structured OpenAI responses with deterministic citation validation and a
   second groundedness check.
+- Deterministic conversation and research routing without an autonomous agent loop.
+- Follow-up resolution using persisted conversation context.
+- Bounded live web research with structured source metadata.
+- Multi-issue constitutional retrieval and completeness verification for legal hypotheticals.
+- Intent-sized current-fact answers requiring concise official-source evidence.
 - Prompt-injection defenses across user input, retrieved documents, and model
   output.
 - A FastAPI backend with CORS validation, concurrency limits, timeouts, and
@@ -48,14 +57,15 @@ Next.js chat interface
   ▼
 FastAPI service
   │
-  ├── classify and sanitize the question
-  ├── retrieve evidence from Chroma Cloud
-  ├── combine semantic, lexical, and citation matches
-  ├── generate a structured answer with GPT-4o
-  └── validate grounding and citations
+  ├── handle basic conversation deterministically
+  ├── resolve follow-ups into standalone questions
+  ├── classify and sanitize the legal information need
+  ├── constitutional route → retrieve and validate Chroma evidence
+  ├── legal-research route → bounded web search with citations
+  └── mixed route → present both evidence sections
   │
   ▼
-Evidence-backed constitutional answer
+Evidence-backed answer with conversation and source metadata
 ```
 
 ## Technology stack
@@ -68,6 +78,8 @@ Evidence-backed constitutional answer
 | Vector search | Chroma Cloud |
 | Embeddings | OpenAI `text-embedding-3-small` |
 | Answer generation | OpenAI `gpt-4o` |
+| Live legal research | OpenAI Responses API web search |
+| Conversation persistence | PostgreSQL |
 | Source document | Constitution of Nepal (English PDF) |
 
 ## Run it locally
@@ -172,6 +184,10 @@ defaults are suitable for local development:
 |---|---:|---|
 | `OPENAI_REQUEST_TIMEOUT_SECONDS` | `45` | Timeout for an OpenAI SDK operation |
 | `OPENAI_MAX_RETRIES` | `2` | Retry count for transient OpenAI failures |
+| `RESEARCH_MODEL` | `gpt-4o` | Model used for bounded web research |
+| `OPENAI_WEB_SEARCH_TOOL` | `web_search` | Responses API web-search tool name |
+| `WEB_SEARCH_CONTEXT_SIZE` | `medium` | Web-search context depth |
+| `RESEARCH_ALLOWED_DOMAINS` | unset | Optional comma-separated web domain allowlist |
 | `MAX_CONCURRENT_RAG_REQUESTS` | `3` | Maximum RAG jobs per API process |
 | `RAG_QUEUE_TIMEOUT_SECONDS` | `1` | Maximum wait for an available execution slot |
 | `RAG_REQUEST_TIMEOUT_SECONDS` | `90` | Deadline for a complete chat request |
@@ -267,7 +283,8 @@ Request:
 
 ```json
 {
-  "question": "How is the Prime Minister appointed in Nepal?"
+  "question": "How is the Prime Minister appointed in Nepal?",
+  "conversation_id": null
 }
 ```
 
@@ -276,9 +293,18 @@ Response:
 ```json
 {
   "question": "How is the Prime Minister appointed in Nepal?",
-  "answer": "The President appoints the Prime Minister under Article 76..."
+  "answer": "The President appoints the Prime Minister under Article 76...",
+  "conversation_id": "f8d53b9b-dbae-4477-b7a4-bf7c30c2b411",
+  "resolved_question": "How is the Prime Minister appointed in Nepal?",
+  "mode": "constitutional",
+  "sources": []
 }
 ```
+
+Send the returned `conversation_id` with the next request so pronouns and omitted
+subjects in follow-up questions can be resolved. `mode` is one of
+`conversation`, `constitutional`, `legal_research`, `mixed`, or `boundary`.
+For web-researched answers, `sources` contains the source title, URL, and type.
 
 Other endpoints:
 
@@ -295,12 +321,14 @@ Other endpoints:
 constitution-gpt/
 ├── api/
 │   ├── main.py                 # FastAPI routes and application lifecycle
+│   ├── chat_repository.py      # Conversations, messages, and source persistence
 │   └── execution_limits.py     # Concurrency and timeout protection
 ├── rag/
 │   ├── data/                   # Source Constitution PDF
 │   ├── ingestion_pipeline.py   # PDF parsing, chunking, and indexing
 │   ├── hybrid_retrieval.py     # Semantic, lexical, and citation retrieval
 │   ├── prompt_security.py      # Input, context, and output safeguards
+│   ├── research_assistant.py   # Conversation, follow-up, and research orchestration
 │   └── retrieval_pipeline.py   # Routing, generation, and verification
 ├── web/
 │   ├── app/                    # Next.js application and chat interface
@@ -322,7 +350,9 @@ python -m unittest \
   rag.test_answer_formatting \
   rag.test_chroma_connection \
   rag.test_hybrid_retrieval \
-  rag.test_prompt_security
+  rag.test_prompt_security \
+  rag.test_research_assistant \
+  rag.test_legal_issue_research
 ```
 
 Build and type-check the frontend:
@@ -376,10 +406,15 @@ details to browsers.
 - [x] Structured, citation-validated answers
 - [x] Prompt-injection regression suite
 - [x] FastAPI service and Next.js chat interface
+- [x] Basic conversation and multi-turn follow-up resolution
+- [x] Bounded web research for related Nepalese legal questions
+- [x] Structured web source links in API and UI
 - [x] Cloud deployment
 - [ ] Nepali-language Constitution and answers
 - [ ] Support for additional constitutions and legal documents
 - [ ] Authentication and personal conversation history
+- [ ] Dedicated statutes, regulations, bills, and judgments corpus
+- [ ] Autonomous multi-step research agent with explicit tool policies
 - [ ] Automated retrieval-quality evaluation in CI
 - [ ] Accessibility and end-to-end browser testing
 

@@ -9,6 +9,13 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   status: MessageStatus;
+  sources?: Source[];
+}
+
+interface Source {
+  title: string;
+  url: string;
+  source_type: string;
 }
 
 const API_URL = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000').replace(/\/$/, '');
@@ -55,6 +62,7 @@ export default function ChatInterface() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const conversationIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -76,7 +84,7 @@ export default function ChatInterface() {
     ));
   };
 
-  const revealResponse = async (id: string, answer: string, signal: AbortSignal) => {
+  const revealResponse = async (id: string, answer: string, sources: Source[], signal: AbortSignal) => {
     const chunks = answer.match(/\S+\s*/g) ?? [answer];
     let visible = '';
     updateAssistant(id, { status: 'streaming' });
@@ -86,7 +94,7 @@ export default function ChatInterface() {
       updateAssistant(id, { content: visible });
       await wait(index < 12 ? 36 : 22, signal);
     }
-    updateAssistant(id, { content: answer, status: 'complete' });
+    updateAssistant(id, { content: answer, sources, status: 'complete' });
   };
 
   const handleSend = async (suggestedQuestion?: string) => {
@@ -94,6 +102,8 @@ export default function ChatInterface() {
     if (!question || isGenerating) return;
 
     const responseId = crypto.randomUUID();
+    const conversationId = conversationIdRef.current ?? crypto.randomUUID();
+    conversationIdRef.current = conversationId;
     const controller = new AbortController();
     abortRef.current = controller;
     setMessages((current) => [
@@ -108,14 +118,15 @@ export default function ChatInterface() {
       const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question, conversation_id: conversationId }),
         signal: controller.signal,
       });
       if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
 
-      const data: { answer?: string } = await response.json();
+      const data: { answer?: string; conversation_id?: string; sources?: Source[] } = await response.json();
       if (!data.answer?.trim()) throw new Error('The API returned an empty answer');
-      await revealResponse(responseId, data.answer, controller.signal);
+      if (data.conversation_id) conversationIdRef.current = data.conversation_id;
+      await revealResponse(responseId, data.answer, data.sources ?? [], controller.signal);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         setMessages((current) => current.flatMap((message) => {
@@ -138,6 +149,7 @@ export default function ChatInterface() {
     abortRef.current?.abort();
     setMessages([]);
     setInput('');
+    conversationIdRef.current = null;
     window.setTimeout(() => textareaRef.current?.focus(), 0);
   };
 
@@ -184,10 +196,20 @@ export default function ChatInterface() {
                   <div className="message-body">
                     {message.role === 'user' ? <div className="user-bubble">{message.content}</div>
                       : message.status === 'waiting' ? (
-                        <div className="thinking" role="status"><span /><span /><span /><em>Reading the Constitution</em></div>
+                        <div className="thinking" role="status"><span /><span /><span /><em>Researching legal sources</em></div>
                       ) : (
                         <>
                           <AnswerContent content={message.content} />
+                          {message.status !== 'streaming' && message.sources && message.sources.length > 0 && (
+                            <div className="source-list" aria-label="Research sources">
+                              <h4>Sources</h4>
+                              {message.sources.map((source, index) => (
+                                <a href={source.url} target="_blank" rel="noreferrer" key={source.url}>
+                                  <span>{index + 1}</span>{source.title}
+                                </a>
+                              ))}
+                            </div>
+                          )}
                           {message.status === 'streaming' && <span className="stream-caret" aria-label="Response is streaming" />}
                           {message.status !== 'streaming' && message.content && (
                             <div className="message-actions"><button onClick={() => void copyAnswer(message)} aria-label="Copy answer">{copiedId === message.id ? 'Copied' : 'Copy'}</button></div>
@@ -204,7 +226,7 @@ export default function ChatInterface() {
         <footer className="composer-zone">
           {isGenerating && <button className="stop-button" onClick={() => abortRef.current?.abort()}><span aria-hidden="true" /> Stop generating</button>}
           <div className="composer">
-            <textarea ref={textareaRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={handleKeyDown} placeholder="Ask about Nepal’s Constitution" rows={1} aria-label="Message Constitution GPT" />
+            <textarea ref={textareaRef} value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={handleKeyDown} placeholder="Ask about Nepal’s Constitution or law" rows={1} aria-label="Message Constitution GPT" />
             <div className="composer-controls">
               {isGenerating ? (
                 <button className="send-button stop-inline-button" aria-label="Stop generating" onClick={() => abortRef.current?.abort()}>

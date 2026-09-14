@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 from uuid import UUID, uuid4
 
 from psycopg_pool import AsyncConnectionPool
+from psycopg.types.json import Jsonb
+
+
+CREATE_CONVERSATIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS chatbot_conversations (
+    id UUID PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
 
 
 CREATE_INTERACTIONS_TABLE = """
@@ -27,9 +38,57 @@ CREATE INDEX IF NOT EXISTS chatbot_interactions_created_at_idx
 ON chatbot_interactions (created_at DESC)
 """
 
+ADD_CONVERSATION_ID = """
+ALTER TABLE chatbot_interactions
+ADD COLUMN IF NOT EXISTS conversation_id UUID
+REFERENCES chatbot_conversations(id) ON DELETE CASCADE
+"""
+
+ADD_RESOLVED_QUESTION = """
+ALTER TABLE chatbot_interactions
+ADD COLUMN IF NOT EXISTS resolved_question TEXT
+"""
+
+ADD_MODE = """
+ALTER TABLE chatbot_interactions
+ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'constitutional'
+"""
+
+ADD_SOURCES = """
+ALTER TABLE chatbot_interactions
+ADD COLUMN IF NOT EXISTS sources JSONB NOT NULL DEFAULT '[]'::jsonb
+"""
+
+CREATE_CONVERSATION_INDEX = """
+CREATE INDEX IF NOT EXISTS chatbot_interactions_conversation_idx
+ON chatbot_interactions (conversation_id, created_at DESC)
+"""
+
 INSERT_INTERACTION = """
-INSERT INTO chatbot_interactions (request_id, question, answer)
-VALUES (%s, %s, %s)
+INSERT INTO chatbot_interactions (
+    request_id,
+    conversation_id,
+    question,
+    resolved_question,
+    answer,
+    mode,
+    sources
+)
+VALUES (%s, %s, %s, %s, %s, %s, %s)
+"""
+
+UPSERT_CONVERSATION = """
+INSERT INTO chatbot_conversations (id)
+VALUES (%s)
+ON CONFLICT (id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+"""
+
+SELECT_RECENT_INTERACTIONS = """
+SELECT question, answer
+FROM chatbot_interactions
+WHERE conversation_id = %s
+ORDER BY created_at DESC, id DESC
+LIMIT %s
 """
 
 
@@ -100,19 +159,78 @@ class ChatRepository:
         await self._pool.open()
         await self._pool.wait()
         async with self._pool.connection() as connection:
+            await connection.execute(CREATE_CONVERSATIONS_TABLE)
             await connection.execute(CREATE_INTERACTIONS_TABLE)
+            await connection.execute(ADD_CONVERSATION_ID)
+            await connection.execute(ADD_RESOLVED_QUESTION)
+            await connection.execute(ADD_MODE)
+            await connection.execute(ADD_SOURCES)
             await connection.execute(CREATE_CREATED_AT_INDEX)
+            await connection.execute(CREATE_CONVERSATION_INDEX)
 
     async def close(self) -> None:
         await self._pool.close()
 
-    async def save_interaction(self, question: str, answer: str) -> UUID:
+    async def ensure_conversation(self, conversation_id: UUID | None = None) -> UUID:
+        """Create a conversation or refresh the timestamp of an existing one."""
+
+        resolved_id = conversation_id or uuid4()
+        async with self._pool.connection() as connection:
+            await connection.execute(UPSERT_CONVERSATION, (resolved_id,))
+        return resolved_id
+
+    async def get_recent_messages(
+        self,
+        conversation_id: UUID,
+        limit: int = 5,
+    ) -> list[dict[str, str]]:
+        """Return recent exchanges in chronological message order."""
+
+        if limit <= 0 or limit > 20:
+            raise ValueError("limit must be between 1 and 20")
+
+        async with self._pool.connection() as connection:
+            cursor = await connection.execute(
+                SELECT_RECENT_INTERACTIONS,
+                (conversation_id, limit),
+            )
+            rows = await cursor.fetchall()
+
+        messages: list[dict[str, str]] = []
+        for question, answer in reversed(rows):
+            messages.append({"role": "user", "content": question})
+            messages.append({"role": "assistant", "content": answer})
+        return messages
+
+    async def save_interaction(
+        self,
+        question: str,
+        answer: str,
+        *,
+        conversation_id: UUID | None = None,
+        resolved_question: str | None = None,
+        mode: str = "constitutional",
+        sources: list[dict[str, Any]] | None = None,
+    ) -> UUID:
         """Atomically save one completed question/answer pair."""
         request_id = uuid4()
+        resolved_conversation_id = conversation_id or uuid4()
         async with self._pool.connection() as connection:
             await connection.execute(
+                UPSERT_CONVERSATION,
+                (resolved_conversation_id,),
+            )
+            await connection.execute(
                 INSERT_INTERACTION,
-                (request_id, question, answer),
+                (
+                    request_id,
+                    resolved_conversation_id,
+                    question,
+                    resolved_question or question,
+                    answer,
+                    mode,
+                    Jsonb(sources or []),
+                ),
             )
         return request_id
 

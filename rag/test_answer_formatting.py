@@ -14,8 +14,11 @@ class AnswerFormattingTests(unittest.TestCase):
     def test_related_current_notice_is_deterministic(self):
         scope = QueryScope(
             category="related_current",
+            answer_type="direct_fact",
             reason="The current officeholder changes over time.",
             constitutional_query="How is the Prime Minister appointed?",
+            constitutional_queries=["How is the Prime Minister appointed?"],
+            required_issues=["Prime Minister appointment"],
             external_component="Identity of the current Prime Minister",
             recommended_source="an official Government of Nepal source",
             clarification_question="",
@@ -29,8 +32,11 @@ class AnswerFormattingTests(unittest.TestCase):
     def test_related_current_notice_precedes_constitutional_answer(self):
         scope = QueryScope(
             category="related_current",
+            answer_type="direct_fact",
             reason="The current officeholder changes over time.",
             constitutional_query="How is the Prime Minister appointed?",
+            constitutional_queries=["How is the Prime Minister appointed?"],
+            required_issues=["Prime Minister appointment"],
             external_component="Identity of the current Prime Minister",
             recommended_source="an official Government of Nepal source",
             clarification_question="",
@@ -53,8 +59,11 @@ class AnswerFormattingTests(unittest.TestCase):
     def test_out_of_scope_response_explains_boundary_and_next_source(self):
         scope = QueryScope(
             category="out_of_scope",
+            answer_type="direct_fact",
             reason="Current economic statistics are not contained in the Constitution.",
             constitutional_query="",
+            constitutional_queries=[],
+            required_issues=[],
             external_component="Current GDP",
             recommended_source="an official Government of Nepal statistics source",
             clarification_question="",
@@ -69,8 +78,11 @@ class AnswerFormattingTests(unittest.TestCase):
     def test_ambiguous_response_does_not_render_router_generated_text(self):
         scope = QueryScope(
             category="ambiguous",
+            answer_type="general_research",
             reason="The requested subject is unclear.",
             constitutional_query="",
+            constitutional_queries=[],
+            required_issues=[],
             external_component="",
             recommended_source="",
             clarification_question="Which constitutional office do you mean?",
