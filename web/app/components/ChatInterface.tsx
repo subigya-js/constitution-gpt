@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type MessageStatus = 'complete' | 'waiting' | 'streaming' | 'error';
 
@@ -36,20 +38,27 @@ const wait = (milliseconds: number, signal: AbortSignal) =>
     }, { once: true });
   });
 
+/** Strip trailing inline citation links injected by the research API, e.g. ([domain.com](https://...)) */
+function stripInlineCitations(text: string): string {
+  return text
+    .replace(/\s*\(\[[^\]]+\]\(https?:\/\/[^)]+\)\)/g, '')
+    .trim();
+}
+
 function AnswerContent({ content }: { content: string }) {
   return (
     <div className="answer-content">
-      {content.split('\n').map((line, index) => {
-        const trimmed = line.trim();
-        if (!trimmed) return <div className="answer-spacer" key={index} />;
-        if (/^(#{1,3}\s|📘|Article\s+\d+)/i.test(trimmed)) {
-          return <h3 key={index}>{trimmed.replace(/^#{1,3}\s*/, '')}</h3>;
-        }
-        if (/^([•*-]|\d+\.)\s/.test(trimmed)) {
-          return <p className="answer-list" key={index}>{trimmed}</p>;
-        }
-        return <p key={index}>{line}</p>;
-      })}
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Open all links in a new tab safely
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noreferrer noopener">{children}</a>
+          ),
+        }}
+      >
+        {stripInlineCitations(content)}
+      </ReactMarkdown>
     </div>
   );
 }
