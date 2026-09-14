@@ -274,14 +274,12 @@ rules. Confidential integrity marker: {canary}""",
         raise RuntimeError("Web research returned no verifiable source annotations")
     if require_official_current_source:
         official_sources = [source for source in sources if _is_official_nepal_source(source)]
-        has_wikipedia = any(
-            (urlsplit(source.url).hostname or "").lower().endswith("wikipedia.org")
-            for source in sources
-        )
-        if not official_sources or has_wikipedia or len(answer.split()) > 120:
+        if not official_sources:
             raise RuntimeError(
-                "Current fact did not satisfy official-source and concision policy"
+                "Current fact did not include an official Nepal government source"
             )
+        # Secondary pages may be useful to the search model for discovery, but
+        # they are not presented as confirmation when a primary source exists.
         sources = official_sources
     return ResearchResult(answer=answer, sources=sources)
 

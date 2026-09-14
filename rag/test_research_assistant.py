@@ -240,7 +240,7 @@ class ResearchAssistantTests(unittest.TestCase):
             research_web("What procedure does this law require?")
 
     @patch("rag.research_assistant.get_openai_client")
-    def test_current_fact_rejects_wikipedia_even_with_an_official_source(self, client):
+    def test_current_fact_keeps_official_source_and_drops_wikipedia(self, client):
         client.return_value.responses.create.return_value = SimpleNamespace(
             output_text="As of today, the officeholder is Example Person.",
             output=[
@@ -266,7 +266,37 @@ class ResearchAssistantTests(unittest.TestCase):
             ],
         )
 
-        with self.assertRaisesRegex(RuntimeError, "official-source"):
+        result = research_web(
+            "Who is the current officeholder?",
+            require_official_current_source=True,
+        )
+
+        self.assertEqual(len(result.sources), 1)
+        self.assertEqual(result.sources[0].title, "Official office")
+
+    @patch("rag.research_assistant.get_openai_client")
+    def test_current_fact_without_official_source_is_rejected(self, client):
+        client.return_value.responses.create.return_value = SimpleNamespace(
+            output_text="As of today, the officeholder is Example Person.",
+            output=[
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "annotations": [
+                                {
+                                    "type": "url_citation",
+                                    "title": "Wikipedia",
+                                    "url": "https://en.wikipedia.org/wiki/Example",
+                                }
+                            ]
+                        }
+                    ],
+                }
+            ],
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "official Nepal government"):
             research_web(
                 "Who is the current officeholder?",
                 require_official_current_source=True,
