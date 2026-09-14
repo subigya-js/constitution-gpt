@@ -41,7 +41,7 @@ button:focus-visible, textarea:focus-visible { outline: 2px solid rgba(255,255,2
 .message-row { display: flex; width: 100%; margin-bottom: 34px; animation: message-in 280ms ease both; }
 .message-row.user { justify-content: flex-end; }
 .message-row.assistant { align-items: flex-start; gap: 16px; }
-.user-bubble { max-width: min(78%, 560px); min-width: 90px; padding: 10px 16px; border: 1px solid rgba(255,255,255,.07); border-radius: 12px; background: #3c3c3c; color: #efefef; font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.user-bubble { width: max-content; max-width: 540px; padding: 10px 16px; border: 1px solid rgba(255,255,255,.07); border-radius: 16px; background: #3c3c3c; color: #efefef; font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .message-body { min-width: 0; max-width: 680px; color: #dedede; font-size: 15px; line-height: 1.72; }
 /* ── Markdown typography (answer-content) ─────────────────────────── */
 .answer-content { font-size: 15px; line-height: 1.72; color: #dedede; }
